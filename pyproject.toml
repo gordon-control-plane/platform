@@ -1,0 +1,12 @@
+[project]
+name = "gordon-control-plane"
+version = "0.1.0"
+description = "Two-Plane multi-agent control plane"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "temporalio",
+    "langgraph",
+    "litellm",
+    "pytest"
+]
