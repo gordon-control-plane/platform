@@ -1,0 +1,16 @@
+name: pr-checks
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run pre-commit checks
+        run: echo "Run prek here"
+      - name: Run pytest
+        run: echo "Run pytest here"
+      - name: Helm lint
+        run: helm lint charts/agent-platform
