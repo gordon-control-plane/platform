@@ -1,0 +1,13 @@
+replicaCount: 1
+secrets:
+  langfuseNextauthSecret: "secret"
+  langfuseSalt: "salt"
+
+gitSync:
+  repo: "https://github.com/gordon-control-plane/platform.git"
+  branch: "main"
+
+fullnameOverride: ""
+
+imagePullSecrets:
+  - name: ghcr-secret
