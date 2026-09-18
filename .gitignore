@@ -1,0 +1,32 @@
+hack/
+.cache/
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+.coverage.*
+.env
+
+# Helm dependencies
+charts/*/charts/*.tgz
+charts/*/Chart.lock
+
+# Virtual environments
+venv/
+.venv/
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+
+# Scratch/Debug files
+rendered.yaml
+*.log
