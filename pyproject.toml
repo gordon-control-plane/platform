@@ -8,5 +8,19 @@ dependencies = [
     "temporalio",
     "langgraph",
     "litellm",
-    "pytest"
+    "langgraph-checkpoint-postgres",
+    "mcp",
+    "psycopg[binary]"
 ]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov>=7.1.0",
+    "pre-commit"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tests/e2e"]

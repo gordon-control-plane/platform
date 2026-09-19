@@ -1,0 +1,52 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v4.4.0"
+hooks = [
+  { id = "trailing-whitespace", priority = 0 },
+  { id = "end-of-file-fixer", priority = 0 },
+  { id = "check-yaml", priority = 0, args = ["--allow-multiple-documents"], exclude = "^charts/.*" },
+  { id = "check-json", priority = 0 },
+  { id = "check-toml", priority = 0 },
+  { id = "check-added-large-files", priority = 0, args = ["--maxkb=1000"] },
+  { id = "check-merge-conflict", priority = 0 },
+  { id = "detect-private-key", priority = 0 }
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.3.0"
+hooks = [
+  { id = "ruff", priority = 0 },
+  { id = "ruff-format", priority = 0 }
+]
+
+[[repos]]
+repo = "https://github.com/gitleaks/gitleaks"
+rev = "v8.18.2"
+hooks = [
+  { id = "gitleaks", priority = 0 }
+]
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.6.27"
+hooks = [
+  { id = "actionlint", priority = 0 }
+]
+
+[[repos]]
+repo = "https://github.com/pre-commit/mirrors-mypy"
+rev = "v1.9.0"
+hooks = [
+  { id = "mypy", priority = 0, args = ["--ignore-missing-imports", "--explicit-package-bases"] }
+]
+
+[[repos]]
+repo = "https://github.com/bridgecrewio/checkov"
+rev = "3.2.66"
+hooks = [
+  { id = "checkov", priority = 0, args = ["-d", "charts/agent-platform", "--framework", "helm"] }
+]

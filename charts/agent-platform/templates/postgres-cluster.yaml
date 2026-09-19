@@ -1,0 +1,31 @@
+apiVersion: "acid.zalan.do/v1"
+kind: postgresql
+metadata:
+  name: {{ .Release.Name }}-db
+  labels:
+    app: postgres
+spec:
+  teamId: "gordon"
+  volume:
+    size: 10Gi
+  numberOfInstances: 2
+  users:
+    gordon:
+      - superuser
+      - createdb
+    agent-platform: []
+    langfuse: []
+    temporal: []
+  databases:
+    agent-platform: agent-platform
+    langfuse: langfuse
+    temporal: temporal
+  postgresql:
+    version: "15"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 500Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
