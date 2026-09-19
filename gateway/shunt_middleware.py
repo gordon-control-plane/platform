@@ -18,7 +18,11 @@ def truncate_context(messages: list, max_tokens: int = 4000) -> list:
 
     # Approximate token count (roughly 4 chars per token)
     def estimate_tokens(msg):
-        return len(str(msg.get("content", ""))) // 4
+        # Incomplete Token Estimation Schema in Shunt Middleware Dropping Tool Calls (DB Reviewer)
+        content_len = len(str(msg.get("content", "")))
+        tool_calls = str(msg.get("tool_calls", ""))
+        function_call = str(msg.get("function_call", ""))
+        return (content_len + len(tool_calls) + len(function_call)) // 4
 
     sys_tokens = sum(estimate_tokens(m) for m in system_messages)
 
@@ -36,17 +40,20 @@ def truncate_context(messages: list, max_tokens: int = 4000) -> list:
     for msg in reversed(other_messages):
         msg_tokens = estimate_tokens(msg)
         if current_other_tokens + msg_tokens <= allowed_tokens_for_others:
-            retained_others.insert(0, msg)
+            retained_others.append(msg)
             current_other_tokens += msg_tokens
         else:
             # Reached capacity, discard older messages
             break
 
+    # Fix O(N^2) List Insertion
+    retained_others.reverse()
+
     # Reassemble: Preserve original message order
-    retained_set = [id(m) for m in system_messages + retained_others]
+    retained_set = {id(m) for m in system_messages + retained_others}
     return [m for m in messages if id(m) in retained_set]
 
-async def apply_shunt_middleware(payload: bytes) -> bytes:
+def apply_shunt_middleware(payload: bytes, user: str = None) -> bytes:
     """
     Reads the raw HTTP request payload, applies context truncation,
     and returns the optimized payload.
@@ -54,11 +61,11 @@ async def apply_shunt_middleware(payload: bytes) -> bytes:
     try:
         data = json.loads(payload.decode('utf-8'))
         if "messages" in data and isinstance(data["messages"], list):
-            # Apply truncation, assuming a safe default of 8000 tokens for context window
             data["messages"] = truncate_context(data["messages"], max_tokens=8000)
-            return json.dumps(data).encode('utf-8')
+        if user:
+            data["user"] = user
+        return json.dumps(data).encode('utf-8')
     except Exception:
-        # If parsing fails, pass through unmodified (let downstream validation handle it)
         pass
 
     return payload

@@ -46,8 +46,7 @@ def test_truncate_context_system_exceeds_limit():
     assert result[0]["role"] == "system"
     assert result[0]["content"] == "A" * 20000
 
-@pytest.mark.asyncio
-async def test_apply_shunt_middleware():
+def test_apply_shunt_middleware():
     payload_dict = {
         "model": "gpt-4",
         "messages": [
@@ -57,15 +56,14 @@ async def test_apply_shunt_middleware():
     }
     payload_bytes = json.dumps(payload_dict).encode("utf-8")
 
-    result_bytes = await apply_shunt_middleware(payload_bytes)
+    result_bytes = apply_shunt_middleware(payload_bytes)
     result_dict = json.loads(result_bytes.decode("utf-8"))
 
     assert "messages" in result_dict
     assert len(result_dict["messages"]) == 1
     assert result_dict["messages"][0]["role"] == "system"
 
-@pytest.mark.asyncio
-async def test_apply_shunt_middleware_invalid_json():
+def test_apply_shunt_middleware_invalid_json():
     payload_bytes = b"not valid json"
-    result_bytes = await apply_shunt_middleware(payload_bytes)
+    result_bytes = apply_shunt_middleware(payload_bytes)
     assert result_bytes == b"not valid json"

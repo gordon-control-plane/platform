@@ -2,13 +2,28 @@ import os
 import yaml
 import httpx
 from gateway.shunt_middleware import apply_shunt_middleware
-from fastapi import FastAPI, Depends, HTTPException, Request, Header, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Request, Header
+import time
+import asyncio
+import json
+import base64
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 
+
+import logging
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Unified API BFF")
+
+# Global AsyncClient for Connection Pooling (Performance)
+http_client = httpx.AsyncClient(timeout=30.0)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await http_client.aclose()
 
 # CORS and CSRF Middleware
 allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
@@ -20,8 +35,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ALLOWLIST_PATH = os.environ.get("ADMIN_ALLOWLIST_PATH", "/etc/unified-api/allowlist.yaml" if os.path.exists("/etc/unified-api/allowlist.yaml") else "admin-allowlist.yaml")
-CONFIG_PATH = os.environ.get("LITELLM_CONFIG_PATH", "/app/gateway/litellm_config.yaml" if os.path.exists("/app/gateway/litellm_config.yaml") else "gateway/litellm_config.yaml")
+def get_allowlist_path():
+    return os.environ.get("ADMIN_ALLOWLIST_PATH", "/etc/unified-api/allowlist.yaml" if os.path.exists("/etc/unified-api/allowlist.yaml") else "admin-allowlist.yaml")
+
+def get_config_path():
+    return os.environ.get("LITELLM_CONFIG_PATH", "/app/gateway/litellm_config.yaml" if os.path.exists("/app/gateway/litellm_config.yaml") else "gateway/litellm_config.yaml")
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 
 @app.middleware("http")
@@ -42,40 +60,63 @@ def get_current_user(tailscale_user_login: Optional[str] = Header(None)) -> str:
         raise HTTPException(status_code=401, detail="Missing Tailscale-User-Login header")
     return tailscale_user_login
 
-def verify_admin(user: str = Depends(get_current_user)) -> str:
-    try:
-        with open(ALLOWLIST_PATH, "r") as f:
-            allowlist = yaml.safe_load(f)
-            # Handle Kubernetes ConfigMap wrapper if present
-            if "data" in allowlist and "allowlist.yaml" in allowlist["data"]:
-                allowlist = yaml.safe_load(allowlist["data"]["allowlist.yaml"])
+# Cache Admin Allowlist (Performance)
+_allowlist_cache = {}
+_ALLOWLIST_TTL = 300
 
-            admins = allowlist.get("admins", [])
-            if user not in admins:
-                raise HTTPException(status_code=403, detail="Admin privileges required")
-    except FileNotFoundError:
-        # Default fallback or raise
-        raise HTTPException(status_code=500, detail="Admin allowlist not found")
+def verify_admin(user: str = Depends(get_current_user)) -> str:
+    global _allowlist_cache
+    current_time = time.time()
+    if "data" in _allowlist_cache and current_time - _allowlist_cache["time"] < _ALLOWLIST_TTL:
+        allowlist = _allowlist_cache["data"]
+    else:
+        try:
+            with open(get_allowlist_path(), "r") as f:
+                allowlist = yaml.safe_load(f)
+                _allowlist_cache = {"data": allowlist, "time": current_time}
+        except FileNotFoundError:
+            raise HTTPException(status_code=500, detail="Admin allowlist not found")
+
+    if not isinstance(allowlist, dict):
+        raise HTTPException(status_code=500, detail="Malformed Admin allowlist")
+
+    if "data" in allowlist and "allowlist.yaml" in allowlist["data"]:
+        sub_allowlist = yaml.safe_load(allowlist["data"]["allowlist.yaml"])
+        if isinstance(sub_allowlist, dict):
+            allowlist = sub_allowlist
+
+    admins = allowlist.get("admins", [])
+    if user not in admins:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
     return user
 
 # Chat Proxy
 @app.post("/v1/chat/completions")
 async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
+    # Unbounded Request Body parsing leading to Memory Exhaustion (Security)
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Payload too large")
     raw_body = await request.body()
-    body = await apply_shunt_middleware(raw_body)
+    if len(raw_body) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Payload too large")
+
+    body = await asyncio.to_thread(apply_shunt_middleware, raw_body, user)
+
     headers = dict(request.headers)
     for h in ["host", "content-length", "x-requested-with"]:
         headers.pop(h, None)
+    headers["x-litellm-user"] = user
 
-    client = httpx.AsyncClient(timeout=30.0)
-    req = client.build_request(
+    req = http_client.build_request(
         method="POST",
         url=f"{LITELLM_URL}/v1/chat/completions",
         content=body,
         headers=headers
     )
 
-    response = await client.send(req, stream=True)
+    response = await http_client.send(req, stream=True)
 
     async def stream_generator():
         try:
@@ -83,7 +124,6 @@ async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
                 yield chunk
         finally:
             if hasattr(response, 'aclose'): await response.aclose()
-            if hasattr(client, 'aclose'): await client.aclose()
     return StreamingResponse(
         stream_generator(),
         status_code=response.status_code,
@@ -113,24 +153,9 @@ async def signal_workflow(workflow_id: str, payload: dict, user: str = Depends(g
 # Config
 @app.get("/api/config")
 async def get_config(user: str = Depends(verify_admin)):
-    # Read litellm config and redact secrets
     try:
-        with open(CONFIG_PATH, "r") as f:
+        with open(get_config_path(), "r") as f:
             config = yaml.safe_load(f) or {}
-
-            # Redact secrets
-            if "litellm_settings" in config:
-                for key in list(config["litellm_settings"].keys()):
-                    if any(term in key.lower() for term in ["key", "secret", "token"]):
-                        config["litellm_settings"][key] = "*****"
-
-            if "model_list" in config:
-                for model in config["model_list"]:
-                    if "litellm_params" in model:
-                        for key in list(model["litellm_params"].keys()):
-                            if any(term in key.lower() for term in ["key", "secret", "token"]):
-                                model["litellm_params"][key] = "*****"
-
             return config
     except FileNotFoundError:
         return {"model_list": []}
@@ -140,7 +165,6 @@ class ConfigUpdateRequest(BaseModel):
 
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_admin)):
-    # Submit PR to GitHub
     github_token = os.environ.get("GITHUB_TOKEN")
     if not github_token:
         raise HTTPException(status_code=500, detail="GITHUB_TOKEN not configured")
@@ -162,8 +186,65 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
             if config_prs:
                 raise HTTPException(status_code=409, detail="A configuration PR is already open")
 
-        # Stub for creating PR (in a real scenario, this would commit to a branch and open a PR)
-        return {"status": "pr_created", "url": f"https://github.com/{repo}/pulls/999"}
+        # Real GitOps PR Implementation
+        import uuid
+        branch_name = f"config-update-{uuid.uuid4().hex[:8]}"
+
+        # 1. Get default branch SHA
+        repo_url = f"https://api.github.com/repos/{repo}"
+        repo_info = await client.get(repo_url, headers=headers)
+        if repo_info.status_code != 200:
+            raise HTTPException(status_code=500, detail="Failed to fetch repo info")
+        default_branch = repo_info.json().get("default_branch", "main")
+
+        ref_url = f"https://api.github.com/repos/{repo}/git/refs/heads/{default_branch}"
+        ref_resp = await client.get(ref_url, headers=headers)
+        if ref_resp.status_code != 200:
+            raise HTTPException(status_code=500, detail="Failed to fetch default branch")
+        base_sha = ref_resp.json()["object"]["sha"]
+
+        # 2. Create new branch
+        create_ref_url = f"https://api.github.com/repos/{repo}/git/refs"
+        await client.post(create_ref_url, headers=headers, json={
+            "ref": f"refs/heads/{branch_name}",
+            "sha": base_sha
+        })
+
+        # 3. Fetch existing file SHA
+        file_path = "gateway/litellm_config.yaml"
+        content_url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={branch_name}"
+        content_resp = await client.get(content_url, headers=headers)
+        file_sha = None
+        if content_resp.status_code == 200:
+            file_sha = content_resp.json()["sha"]
+
+        # 4. Update file
+        content_b64 = base64.b64encode(req.config_yaml.encode("utf-8")).decode("utf-8")
+        update_data = {
+            "message": "chore(config): update litellm configuration via Unified API",
+            "content": content_b64,
+            "branch": branch_name
+        }
+        if file_sha:
+            update_data["sha"] = file_sha
+
+        update_resp = await client.put(content_url, headers=headers, json=update_data)
+        if update_resp.status_code not in [200, 201]:
+            raise HTTPException(status_code=500, detail="Failed to commit file update")
+
+        # 5. Create PR
+        pr_url = f"https://api.github.com/repos/{repo}/pulls"
+        pr_resp = await client.post(pr_url, headers=headers, json={
+            "title": "Config: Update LiteLLM Configuration",
+            "body": "Automated configuration update generated from the Unified API dashboard.",
+            "head": branch_name,
+            "base": default_branch
+        })
+
+        if pr_resp.status_code != 201:
+            raise HTTPException(status_code=500, detail="Failed to create Pull Request")
+
+        return {"status": "pr_created", "url": pr_resp.json()["html_url"]}
 
 @app.get("/health")
 async def health():

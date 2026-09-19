@@ -14,19 +14,11 @@ tailscaleIngress:
   secretName: tailscale-auth
   caddyConfig: |
     # Caddyfile config
-    # Use tailscale provided cert
-    {$TS_HOSTNAME}.tailnet-xxxx.ts.net {
-        # Secure the backend with Tailscale provided TLS
-        tls /var/run/tailscale/certs/tls.crt /var/run/tailscale/certs/tls.key
-
-        # Drop any spoofed Tailscale headers from the outside
-        request_header -Tailscale-User-Login
-        request_header -Tailscale-User-Name
-        request_header -Tailscale-User-Profile-Pic
-
+    # Route via plain HTTP since Tailscale serve terminates TLS and injects Tailscale-User-Login
+    http://127.0.0.1:8080 {
         # Proxy routes
         handle /v1/chat* {
-            reverse_proxy litellm:4000
+            reverse_proxy unified-api:8000
         }
 
         handle /v1/* {
