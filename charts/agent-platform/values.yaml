@@ -1,13 +1,67 @@
-replicaCount: 1
-secrets:
-  langfuseNextauthSecret: "secret"
-  langfuseSalt: "salt"
+# Unprivileged Sidecar Bridge Ingress
+tailscaleIngress:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: tailscale/tailscale
+    tag: latest
+  caddyImage:
+    repository: caddy
+    tag: 2-alpine
+  hostname: gordon-control-plane
+  # The TS_AUTHKEY should be provided via secret:
+  # kubectl create secret generic tailscale-auth --from-literal=TS_AUTHKEY=tskey-auth-xxxx
+  secretName: tailscale-auth
+  caddyConfig: |
+    # Caddyfile config
+    # Route via plain HTTP since Tailscale serve terminates TLS and injects Tailscale-User-Login
+    http://127.0.0.1:8080 {
+        # Proxy routes
+        handle /v1/chat* {
+            reverse_proxy unified-api:8000
+        }
 
-gitSync:
-  repo: "https://github.com/gordon-control-plane/platform.git"
-  branch: "main"
+        handle /v1/* {
+            reverse_proxy unified-api:8000
+        }
 
-fullnameOverride: ""
+        handle /telemetry* {
+            reverse_proxy unified-api:8000
+        }
 
-imagePullSecrets:
-  - name: ghcr-secret
+        handle /api/* {
+            reverse_proxy unified-api:8000
+        }
+
+        handle /* {
+            reverse_proxy frontend:3000
+        }
+    }
+
+unifiedApi:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: agent-unified-api
+    tag: local
+    pullPolicy: IfNotPresent
+  githubRepo: "YOUR_ORG/YOUR_CONFIG_REPO" # MUST CHANGE THIS!
+  service:
+    port: 8000
+
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: agent-frontend
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    HOSTNAME: "0.0.0.0"
+  service:
+    port: 3000
+
+litellm:
+  enabled: true
+  service:
+    port: 4000

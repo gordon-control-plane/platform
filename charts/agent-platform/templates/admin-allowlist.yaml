@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-allowlist
+data:
+  allowlist.yaml: |
+    admins:
+      - admin@example.com
+      - wgordon17@gmail.com
+    # Future roles can be added here

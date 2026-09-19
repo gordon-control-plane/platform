@@ -1,0 +1,90 @@
+import os
+import pytest
+import yaml
+from fastapi.testclient import TestClient
+from unittest.mock import patch, mock_open
+
+# Ensure ENV is not 'dev' so we can test headers
+os.environ.pop("ENV", None)
+
+from gateway.unified_api import app
+
+client = TestClient(app)
+
+def test_health():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+def test_csrf_middleware_missing_header():
+    # POST without X-Requested-With should fail
+    response = client.post("/api/workflows", json={"name": "test", "args": {}}, headers={"Tailscale-User-Login": "user@example.com"})
+    assert response.status_code == 403
+    assert "CSRF verification failed" in response.json()["detail"]
+
+def test_csrf_middleware_present_header():
+    # POST with X-Requested-With should pass CSRF but might fail auth/admin or succeed
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "user@example.com"
+    }
+    response = client.post("/api/workflows", json={"name": "test", "args": {}}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["id"] == "wf_12345"
+
+def test_auth_missing_header():
+    # GET doesn't require CSRF header, but still requires Auth for workflows
+    response = client.get("/api/workflows/wf_123/state")
+    assert response.status_code == 401
+    assert "Missing Tailscale-User-Login header" in response.json()["detail"]
+
+def test_auth_with_dev_env():
+    with patch.dict(os.environ, {"ENV": "dev"}):
+        response = client.get("/api/workflows/wf_123/state")
+        assert response.status_code == 200
+        assert response.json()["state"] == "running"
+
+def test_verify_admin_success():
+    allowlist_yaml = """
+admins:
+  - admin@example.com
+"""
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "admin@example.com"
+    }
+    with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
+        response = client.get("/api/config", headers=headers)
+        assert response.status_code == 200
+
+def test_verify_admin_forbidden():
+    allowlist_yaml = """
+admins:
+  - admin@example.com
+"""
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "user@example.com"
+    }
+    with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
+        response = client.get("/api/config", headers=headers)
+        assert response.status_code == 403
+        assert "Admin privileges required" in response.json()["detail"]
+
+def test_chat_proxy():
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "user@example.com"
+    }
+    # Mocking httpx.AsyncClient.send to avoid real network call
+    class MockResponse:
+        status_code = 200
+        headers = {}
+        async def aiter_raw(self):
+            yield b"data: test\\n\\n"
+
+    with patch("httpx.AsyncClient.send") as mock_send:
+        mock_send.return_value = MockResponse()
+        response = client.post("/v1/chat/completions", json={"model": "gpt-4", "messages": []}, headers=headers)
+        assert response.status_code == 200
+        assert response.text == "data: test\\n\\n"
