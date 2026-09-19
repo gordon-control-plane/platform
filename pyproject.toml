@@ -8,5 +8,15 @@ dependencies = [
     "temporalio",
     "langgraph",
     "litellm",
-    "pytest"
+    "pytest",
+    "fastapi",
+    "uvicorn",
+    "watchdog",
+    "httpx"
+]
+
+[project.optional-dependencies]
+dev = [
+    "locust",
+    "kubernetes"
 ]

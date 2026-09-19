@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-omnigent
+  labels:
+    app: omnigent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: omnigent
+  template:
+    metadata:
+      labels:
+        app: omnigent
+    spec:
+      containers:
+        - name: omnigent
+          image: "gordon-control-plane/omnigent:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          # Secrets will be mounted later in Task 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: omnigent
+  labels:
+    app: omnigent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: omnigent

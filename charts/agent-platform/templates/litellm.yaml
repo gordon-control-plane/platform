@@ -1,0 +1,71 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-litellm-config
+data:
+  litellm_config.yaml: |
+{{ .Files.Get "files/litellm_config.yaml" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-litellm
+  labels:
+    app: litellm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: "ghcr.io/berriai/litellm:main-latest"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config"
+            - "/app/config/litellm_config.yaml"
+            - "--port"
+            - "4000"
+            - "--detailed_debug"
+          ports:
+            - containerPort: 4000
+              protocol: TCP
+          env:
+            # Disable Admin UI
+            - name: LITELLM_MODE
+              value: "PRODUCTION"
+          envFrom:
+            - secretRef:
+                name: {{ include "agent-platform.fullname" . }}-secrets
+                optional: true
+          volumeMounts:
+            - name: litellm-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: litellm-config
+          configMap:
+            name: {{ include "agent-platform.fullname" . }}-litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  labels:
+    app: litellm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP
+      name: http
+  selector:
+    app: litellm
+{{- end }}

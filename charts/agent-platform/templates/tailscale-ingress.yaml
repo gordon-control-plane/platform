@@ -1,0 +1,83 @@
+{{- if .Values.tailscaleIngress.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-caddy-config
+data:
+  Caddyfile: |
+{{ .Values.tailscaleIngress.caddyConfig | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-tailscale-ingress
+  labels:
+    app: tailscale-ingress
+spec:
+  replicas: {{ .Values.tailscaleIngress.replicaCount }}
+  selector:
+    matchLabels:
+      app: tailscale-ingress
+  template:
+    metadata:
+      labels:
+        app: tailscale-ingress
+    spec:
+      containers:
+        - name: tailscale
+          image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TS_USERSPACE
+              value: "true"
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.tailscaleIngress.secretName }}
+                  key: TS_AUTHKEY
+            - name: TS_HOSTNAME
+              value: {{ .Values.tailscaleIngress.hostname }}
+            - name: TS_DEST_IP
+              value: "127.0.0.1"
+            - name: TS_EXTRA_ARGS
+              value: "--ssh"
+          # No NET_ADMIN needed as it runs in userspace mode
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: tailscale-state
+              mountPath: /var/lib/tailscale
+            - name: cert-dir
+              mountPath: /var/run/tailscale/certs
+
+        - name: caddy
+          image: "{{ .Values.tailscaleIngress.caddyImage.repository }}:{{ .Values.tailscaleIngress.caddyImage.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 443
+              protocol: TCP
+            - containerPort: 80
+              protocol: TCP
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+            - name: cert-dir
+              mountPath: /var/run/tailscale/certs
+              readOnly: true
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+      volumes:
+        - name: tailscale-state
+          emptyDir: {}
+        - name: cert-dir
+          emptyDir: {}
+        - name: caddy-config
+          configMap:
+            name: {{ include "agent-platform.fullname" . }}-caddy-config
+{{- end }}

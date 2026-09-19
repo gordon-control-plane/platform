@@ -1,0 +1,65 @@
+{{- if .Values.unifiedApi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-unified-api
+  labels:
+    app: unified-api
+spec:
+  replicas: {{ .Values.unifiedApi.replicaCount }}
+  selector:
+    matchLabels:
+      app: unified-api
+  template:
+    metadata:
+      labels:
+        app: unified-api
+    spec:
+      containers:
+        - name: unified-api
+          image: "{{ .Values.unifiedApi.image.repository }}:{{ .Values.unifiedApi.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-platform.fullname" . }}-secrets
+                  key: GITHUB_TOKEN
+                  optional: true
+            - name: GITHUB_REPO
+              value: "gordon-control-plane/platform"
+          volumeMounts:
+            - name: admin-allowlist
+              mountPath: /etc/unified-api
+              readOnly: true
+            - name: litellm-config
+              mountPath: /app/gateway/litellm_config.yaml
+              subPath: litellm_config.yaml
+              readOnly: true
+      volumes:
+        - name: admin-allowlist
+          configMap:
+            name: admin-allowlist
+        - name: litellm-config
+          configMap:
+            name: {{ include "agent-platform.fullname" . }}-litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: unified-api
+  labels:
+    app: unified-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: unified-api
+{{- end }}
