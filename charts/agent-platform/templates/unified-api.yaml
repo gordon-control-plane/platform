@@ -37,7 +37,7 @@ spec:
                   key: GITHUB_TOKEN
                   optional: true
             - name: GITHUB_REPO
-              value: "gordon-control-plane/platform"
+              value: {{ .Values.unifiedApi.githubRepo | quote }}
           volumeMounts:
             - name: admin-allowlist
               mountPath: /etc/unified-api

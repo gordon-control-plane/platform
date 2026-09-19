@@ -42,8 +42,10 @@ unifiedApi:
   enabled: true
   replicaCount: 1
   image:
-    repository: gordon-control-plane/unified-api
-    tag: latest
+    repository: agent-unified-api
+    tag: local
+    pullPolicy: IfNotPresent
+  githubRepo: "YOUR_ORG/YOUR_CONFIG_REPO" # MUST CHANGE THIS!
   service:
     port: 8000
 
@@ -51,8 +53,11 @@ frontend:
   enabled: true
   replicaCount: 1
   image:
-    repository: gordon-control-plane/frontend
-    tag: latest
+    repository: agent-frontend
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    HOSTNAME: "0.0.0.0"
   service:
     port: 3000
 
