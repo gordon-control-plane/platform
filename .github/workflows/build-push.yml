@@ -3,6 +3,8 @@ name: Build and Push Images
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch: {}
 
 permissions:
@@ -20,8 +22,10 @@ jobs:
           - { name: "agent-platform-worker", path: "." }
           - { name: "sandbox", path: "." }
           - { name: "relay", path: "." }
+          - { name: "unified-api", path: "build/Dockerfile.unified-api" }
+          - { name: "frontend", path: "build/Dockerfile.frontend" }
 
     uses: ./.github/workflows/_build-scan-push.yml
     with:
-      dockerfile: ${{ matrix.component.path }}/Dockerfile
+      dockerfile: ${{ matrix.component.path == '.' && format('{0}/Dockerfile', matrix.component.name) || matrix.component.path }}
       image: ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}

@@ -1,0 +1,115 @@
+{{- if .Values.tailscaleIngress.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-caddy-config
+data:
+  Caddyfile: |
+{{ .Values.tailscaleIngress.caddyConfig | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-tailscale-ingress
+  labels:
+    app: tailscale-ingress
+spec:
+  replicas: {{ .Values.tailscaleIngress.replicaCount }}
+  selector:
+    matchLabels:
+      app: tailscale-ingress
+  template:
+    metadata:
+      labels:
+        app: tailscale-ingress
+    spec:
+      containers:
+        - name: tailscale
+          image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TS_USERSPACE
+              value: "true"
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.tailscaleIngress.secretName }}
+                  key: TS_AUTHKEY
+            - name: TS_HOSTNAME
+              value: {{ .Values.tailscaleIngress.hostname }}
+            - name: TS_DEST_IP
+              value: "127.0.0.1"
+            - name: TS_EXTRA_ARGS
+              value: "--ssh"
+          # No NET_ADMIN needed as it runs in userspace mode
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tailscale-state
+              mountPath: /var/lib/tailscale
+            - name: tailscale-run
+              mountPath: /var/run/tailscale
+              # removed certs as Tailscale serve handles TLS internally and Caddy doesn't need them
+
+        - name: tailscale-serve-configurator
+          image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for Tailscale socket..."
+              while [ ! -S /var/run/tailscale/tailscaled.sock ]; do sleep 1; done
+              echo "Configuring tailscale serve..."
+              tailscale serve --bg --set-path / http://127.0.0.1:8080
+              echo "Serve configured. Idling."
+              tail -f /dev/null
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: tailscale-state
+              mountPath: /var/lib/tailscale
+            - name: tailscale-run
+              mountPath: /var/run/tailscale
+
+        - name: caddy
+          image: "{{ .Values.tailscaleIngress.caddyImage.repository }}:{{ .Values.tailscaleIngress.caddyImage.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+      volumes:
+        - name: tailscale-state
+          persistentVolumeClaim:
+            claimName: {{ include "agent-platform.fullname" . }}-tailscale-state
+        - name: tailscale-run
+          emptyDir: {}
+        - name: caddy-config
+          configMap:
+            name: {{ include "agent-platform.fullname" . }}-caddy-config
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-tailscale-state
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+{{- end }}
