@@ -117,15 +117,33 @@ def test_update_config_valid_yaml():
 
     with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "mock"}):
-            # We only care that it parses YAML successfully and moves on to the httpx call
             with patch("httpx.AsyncClient.get") as mock_get:
-                mock_get.return_value.status_code = 404  # No PRs
-                mock_get.return_value.json.return_value = []
+
+                def mock_get_side_effect(url, **kwargs):
+                    class MockResponse:
+                        def __init__(self, json_data, status_code):
+                            self._json = json_data
+                            self.status_code = status_code
+
+                        def json(self):
+                            return self._json
+
+                    if "pulls?state=open" in url:
+                        return MockResponse([], 200)
+                    if "git/refs/heads" in url:
+                        return MockResponse({"object": {"sha": "123"}}, 200)
+                    if "contents" in url:
+                        return MockResponse({"sha": "abc456"}, 200)
+                    return MockResponse({"default_branch": "main"}, 200)
+
+                mock_get.side_effect = mock_get_side_effect
                 with patch("httpx.AsyncClient.post") as mock_post:
+                    from unittest.mock import MagicMock
+
                     mock_post.return_value.status_code = 201
-                    mock_post.return_value.json.return_value = {
-                        "html_url": "http://test.com/pr/1"
-                    }
+                    mock_post.return_value.json = MagicMock(
+                        return_value={"html_url": "http://test.com/pr/1"}
+                    )
                     with patch("httpx.AsyncClient.put") as mock_put:
                         mock_put.return_value.status_code = 200
                         response = client.post(
