@@ -49,8 +49,11 @@ def apply_shunt_middleware(payload: bytes, user: Optional[str] = None) -> bytes:
         if user:
             data["user"] = user
         return json.dumps(data).encode('utf-8')
-    except Exception:
-        pass
+    except json.JSONDecodeError as e:
+        pass # Return raw payload if it's not JSON
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Shunt middleware error: {e}")
     return payload
 
 
