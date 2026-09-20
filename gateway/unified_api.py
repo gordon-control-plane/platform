@@ -5,7 +5,7 @@ from gateway.shunt_middleware import apply_shunt_middleware
 from fastapi import FastAPI, Depends, HTTPException, Request, Header
 import time
 import asyncio
-import json
+import orjson
 import base64
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,14 +18,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Unified API BFF")
 
-# Global AsyncClient for Connection Pooling (Performance)
 http_client = httpx.AsyncClient(timeout=30.0)
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await http_client.aclose()
 
-# CORS and CSRF Middleware
 allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -44,7 +42,6 @@ LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 
 @app.middleware("http")
 async def verify_csrf_header(request: Request, call_next):
-    # Require custom header for state-changing requests to mitigate CSRF
     if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
         if request.headers.get("X-Requested-With") != "XMLHttpRequest":
             return JSONResponse(
@@ -60,7 +57,6 @@ def get_current_user(tailscale_user_login: Optional[str] = Header(None)) -> str:
         raise HTTPException(status_code=401, detail="Missing Tailscale-User-Login header")
     return tailscale_user_login
 
-# Cache Admin Allowlist (Performance)
 _allowlist_cache = {}
 _ALLOWLIST_TTL = 300
 
@@ -91,10 +87,8 @@ def verify_admin(user: str = Depends(get_current_user)) -> str:
 
     return user
 
-# Chat Proxy
 @app.post("/v1/chat/completions")
 async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
-    # Unbounded Request Body parsing leading to Memory Exhaustion (Security)
     content_length = request.headers.get("content-length")
     if content_length and int(content_length) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Payload too large")
@@ -130,7 +124,6 @@ async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
         headers={k: v for k, v in response.headers.items() if k.lower() not in ["content-encoding", "content-length", "transfer-encoding"]}
     )
 
-# Workflows
 class WorkflowRequest(BaseModel):
     name: str
     args: Dict[str, Any]
@@ -150,7 +143,6 @@ async def signal_workflow(workflow_id: str, payload: dict, user: str = Depends(g
     # Dispatch signal (Stub)
     return {"id": workflow_id, "signaled": True}
 
-# Config
 @app.get("/api/config")
 async def get_config(user: str = Depends(verify_admin)):
     def _read_config():
@@ -195,7 +187,7 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
 
         if resp.status_code == 200:
             prs = resp.json()
-            config_prs = [pr for pr in prs if "config" in pr.get("title", "").lower()]
+            config_prs = [pr for pr in prs if pr.get("head", {}).get("ref", "").startswith("config-update-")]
             if config_prs:
                 raise HTTPException(status_code=409, detail="A configuration PR is already open")
 
