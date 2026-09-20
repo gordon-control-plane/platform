@@ -1,3 +1,16 @@
+fullnameOverride: ""
+
+imagePullSecrets:
+  - name: ghcr-secret
+
+gitSync:
+  repo: "https://github.com/gordon-control-plane/platform.git"
+  branch: "main"
+
+secrets:
+  langfuseNextauthSecret: "secret"
+  langfuseSalt: "salt"
+
 # Unprivileged Sidecar Bridge Ingress
 tailscaleIngress:
   enabled: true
