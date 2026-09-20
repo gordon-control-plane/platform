@@ -15,7 +15,13 @@ def truncate_context(messages: list, max_tokens: int = 4000) -> list:
     other_messages = [m for m in messages if m.get("role") != "system"]
 
     def estimate_tokens(msg):
-        content_len = len(str(msg.get("content", "")))
+        if not isinstance(msg, dict):
+            return 0
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content_len = sum(len(str(part.get("text", ""))) for part in content if isinstance(part, dict))
+        else:
+            content_len = len(str(content))
         tool_calls = str(msg.get("tool_calls", ""))
         function_call = str(msg.get("function_call", ""))
         return (content_len + len(tool_calls) + len(function_call)) // 4

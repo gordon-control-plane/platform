@@ -88,3 +88,40 @@ def test_chat_proxy():
         response = client.post("/v1/chat/completions", json={"model": "gpt-4", "messages": []}, headers=headers)
         assert response.status_code == 200
         assert response.text == "data: test\\n\\n"
+
+def test_update_config_valid_yaml():
+    allowlist_yaml = "admins:\n  - admin@example.com"
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "admin@example.com"
+    }
+    payload = {"config_yaml": "model_list: []\nrouter_settings: {}"}
+    
+    with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "mock"}):
+            # We only care that it parses YAML successfully and moves on to the httpx call
+            with patch("httpx.AsyncClient.get") as mock_get:
+                mock_get.return_value.status_code = 404 # No PRs
+                mock_get.return_value.json.return_value = []
+                with patch("httpx.AsyncClient.post") as mock_post:
+                    mock_post.return_value.status_code = 201
+                    mock_post.return_value.json.return_value = {"html_url": "http://test.com/pr/1"}
+                    with patch("httpx.AsyncClient.put") as mock_put:
+                        mock_put.return_value.status_code = 200
+                        response = client.post("/api/config", json=payload, headers=headers)
+                        assert response.status_code == 200
+                        assert response.json()["status"] == "pr_created"
+
+def test_update_config_invalid_yaml():
+    allowlist_yaml = "admins:\n  - admin@example.com"
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "admin@example.com"
+    }
+    # Missing model_list
+    payload = {"config_yaml": "some_other_key: []"}
+    
+    with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
+        response = client.post("/api/config", json=payload, headers=headers)
+        assert response.status_code == 400
+        assert "Configuration must contain a valid 'model_list'" in response.json()["detail"]
