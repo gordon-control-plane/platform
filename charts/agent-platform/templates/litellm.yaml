@@ -1,3 +1,12 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-litellm-config
+data:
+  litellm_config.yaml: |
+{{ .Files.Get "files/litellm_config.yaml" | indent 4 }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,15 +26,28 @@ spec:
       containers:
         - name: litellm
           image: "ghcr.io/berriai/litellm:main-latest"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config"
+            - "/app/config/litellm_config.yaml"
+            - "--port"
+            - "4000"
+            - "--detailed_debug"
           ports:
             - containerPort: 4000
+              protocol: TCP
+          env:
+            # Disable Admin UI
+            - name: LITELLM_MODE
+              value: "PRODUCTION"
           envFrom:
             - secretRef:
                 name: {{ include "agent-platform.fullname" . }}-secrets
+                optional: true
           volumeMounts:
             - name: litellm-config
-              mountPath: /app/config.yaml
-              subPath: config.yaml
+              mountPath: /app/config
+              readOnly: true
             - name: litellm-middleware
               mountPath: /app/gateway/shunt_middleware.py
               subPath: shunt_middleware.py
@@ -43,22 +65,18 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "agent-platform.fullname" . }}-litellm
+  name: litellm
+  labels:
+    app: litellm
 spec:
+  type: ClusterIP
   ports:
     - port: 4000
       targetPort: 4000
       protocol: TCP
+      name: http
   selector:
     app: litellm
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "agent-platform.fullname" . }}-litellm-config
-data:
-  config.yaml: |
-{{ .Files.Get "files/litellm_config.yaml" | indent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -68,3 +86,4 @@ data:
   shunt_middleware.py: |
 {{ .Files.Get "files/shunt_middleware.py" | indent 4 }}
   __init__.py: ""
+{{- end }}
