@@ -24,16 +24,10 @@ model_list:
       model: "openai/gpt-3.5-turbo"
       api_key: "os.environ/OPENAI_API_KEY"
 
-router_settings:
-  routing_strategy: usage-based-routing-v2
-
 litellm_settings:
   # Enable Prometheus metrics
   success_callback: ["prometheus"]
   failure_callback: ["prometheus"]
-  
-  custom_callbacks:
-    - gateway.shunt_middleware.ShuntMiddleware
 
   # Explicitly disable caching to prevent agentic staleness
   cache: false
