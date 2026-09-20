@@ -172,6 +172,8 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
         data = yaml.safe_load(req.config_yaml)
         if not isinstance(data, dict):
             raise ValueError("YAML must be a dictionary")
+        if "model_list" not in data or not isinstance(data["model_list"], list):
+            raise ValueError("Configuration must contain a valid 'model_list'")
     except (yaml.YAMLError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid YAML provided: {str(e)}")
 

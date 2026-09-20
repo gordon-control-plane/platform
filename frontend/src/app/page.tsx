@@ -32,20 +32,14 @@ export default function Dashboard() {
 
   const updateConfig = async () => {
     try {
-      let parsedConfig;
-      try {
-        parsedConfig = JSON.parse(configInput);
-      } catch (e) {
-        alert('Invalid JSON in config');
-        return;
-      }
+      // JSON is valid YAML; send raw string to backend for parsing
       const res = await fetch(`${API_URL}/api/config`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest' // Required for CSRF mitigation
         },
-        body: JSON.stringify({ config_json: parsedConfig })
+        body: JSON.stringify({ config_yaml: configInput })
       });
       if (res.ok) {
         const data = await res.json();
