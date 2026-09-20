@@ -169,9 +169,11 @@ class ConfigUpdateRequest(BaseModel):
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_admin)):
     try:
-        yaml.safe_load(req.config_yaml)
-    except yaml.YAMLError:
-        raise HTTPException(status_code=400, detail="Invalid YAML provided")
+        data = yaml.safe_load(req.config_yaml)
+        if not isinstance(data, dict):
+            raise ValueError("YAML must be a dictionary")
+    except (yaml.YAMLError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML provided: {str(e)}")
 
     github_token = os.environ.get("GITHUB_TOKEN")
 
