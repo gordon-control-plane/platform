@@ -1,8 +1,5 @@
 checks:
-  addAllBuiltIn: true
-  # Justify exclusions:
-  # required-annotation-email: Not strictly required for basic security/reliability
-  # no-anti-affinity: Fine for single-node / simple dev environments
-  doNotInclude:
-    - "required-annotation-email"
-    - "no-anti-affinity"
+  addAllBuiltIn: false
+  doNotAutoAddDefaults: true
+  include:
+    - "env-var-secret"

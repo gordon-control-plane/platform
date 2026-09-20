@@ -10,7 +10,12 @@ dependencies = [
     "litellm",
     "langgraph-checkpoint-postgres",
     "mcp",
-    "psycopg[binary]"
+    "psycopg[binary]",
+    "fastapi",
+    "uvicorn",
+    "watchdog",
+    "httpx",
+    "orjson"
 ]
 
 [dependency-groups]
@@ -18,7 +23,10 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov>=7.1.0",
-    "pre-commit"
+    "pre-commit",
+    "locust",
+    "kubernetes",
+    "types-PyYAML"
 ]
 
 [tool.pytest.ini_options]

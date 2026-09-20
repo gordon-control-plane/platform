@@ -50,3 +50,9 @@ rev = "3.2.66"
 hooks = [
   { id = "checkov", priority = 0, args = ["-d", "charts/agent-platform", "--framework", "helm"] }
 ]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "helm-lint", name = "Helm Lint", entry = "helm lint charts/agent-platform", language = "system", pass_filenames = false, files = "^charts/" }
+]
