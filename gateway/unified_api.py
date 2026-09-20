@@ -153,19 +153,28 @@ async def signal_workflow(workflow_id: str, payload: dict, user: str = Depends(g
 # Config
 @app.get("/api/config")
 async def get_config(user: str = Depends(verify_admin)):
-    try:
-        with open(get_config_path(), "r") as f:
-            config = yaml.safe_load(f) or {}
-            return config
-    except FileNotFoundError:
-        return {"model_list": []}
+    def _read_config():
+        try:
+            with open(get_config_path(), "r") as f:
+                return yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            return {"model_list": []}
+        except yaml.YAMLError:
+            return {"model_list": []}
+    return await asyncio.to_thread(_read_config)
 
 class ConfigUpdateRequest(BaseModel):
     config_yaml: str
 
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_admin)):
+    try:
+        yaml.safe_load(req.config_yaml)
+    except yaml.YAMLError:
+        raise HTTPException(status_code=400, detail="Invalid YAML provided")
+
     github_token = os.environ.get("GITHUB_TOKEN")
+
     if not github_token:
         raise HTTPException(status_code=500, detail="GITHUB_TOKEN not configured")
 
