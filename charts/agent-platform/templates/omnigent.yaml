@@ -17,6 +17,7 @@ metadata:
   name: {{ include "agent-platform.fullname" . }}-omnigent
   labels:
     app: omnigent
+spec:
   replicas: 1
   selector:
     matchLabels:
