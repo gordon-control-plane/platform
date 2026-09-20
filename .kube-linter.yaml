@@ -1,31 +1,5 @@
-ignorePaths:
-  - "charts/agent-platform/charts/"
-
 checks:
-  addAllBuiltIn: true
-  # Justify exclusions:
-  # required-annotation-email: Not strictly required for basic security/reliability
-  # no-anti-affinity: Fine for single-node / simple dev environments
-  doNotInclude:
-    - "required-annotation-email"
-    - "no-anti-affinity"
-    - "sorted-keys"
-    - "use-namespace"
-    - "env-value-from"
-    - "no-liveness-probe"
-    - "no-readiness-probe"
-    - "unset-cpu-requirements"
-    - "unset-memory-requirements"
-    - "minimum-three-replicas"
-    - "no-rolling-update-strategy"
-    - "no-read-only-root-fs"
-    - "run-as-non-root"
-    - "non-isolated-pod"
-    - "privileged-container"
-    - "privilege-escalation-container"
-    - "required-label-owner"
-    - "restart-policy"
-    - "latest-tag"
-    - "default-service-account"
-    - "dnsconfig-options"
-    - "no-node-affinity"
+  addAllBuiltIn: false
+  doNotAutoAddDefaults: true
+  include:
+    - "env-var-secret"
