@@ -31,7 +31,7 @@ litellm_settings:
   # Enable Prometheus metrics
   success_callback: ["prometheus"]
   failure_callback: ["prometheus"]
-  
+
   custom_callbacks:
     - gateway.shunt_middleware.ShuntMiddleware
 

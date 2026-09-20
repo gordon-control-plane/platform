@@ -25,7 +25,8 @@ dev = [
     "pytest-cov>=7.1.0",
     "pre-commit",
     "locust",
-    "kubernetes"
+    "kubernetes",
+    "types-PyYAML"
 ]
 
 [tool.pytest.ini_options]
