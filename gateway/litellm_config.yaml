@@ -7,7 +7,7 @@ model_list:
       tpm: 100000
   - model_name: "claude-5-sonnet"
     litellm_params:
-      model: "anthropic/claude-5-sonnet-latest"
+      model: "anthropic/claude-sonnet-5"
       api_key: "os.environ/ANTHROPIC_API_KEY"
   - model_name: "default-model"
     litellm_params:
