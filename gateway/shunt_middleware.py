@@ -3,6 +3,7 @@ import re
 from typing import Any, Optional
 from litellm.integrations.custom_logger import CustomLogger
 
+
 def truncate_context(messages: list, max_tokens: int = 4000) -> list:
     """
     Intelligent Shunt Middleware: Deterministic Token Optimization.
@@ -19,7 +20,11 @@ def truncate_context(messages: list, max_tokens: int = 4000) -> list:
             return 0
         content = msg.get("content", "")
         if isinstance(content, list):
-            content_len = sum(len(str(part.get("text", ""))) for part in content if isinstance(part, dict))
+            content_len = sum(
+                len(str(part.get("text", "")))
+                for part in content
+                if isinstance(part, dict)
+            )
         else:
             content_len = len(str(content))
         tool_calls = str(msg.get("tool_calls", ""))
@@ -47,18 +52,20 @@ def truncate_context(messages: list, max_tokens: int = 4000) -> list:
     retained_set = {id(m) for m in system_messages + retained_others}
     return [m for m in messages if id(m) in retained_set]
 
+
 def apply_shunt_middleware(payload: bytes, user: Optional[str] = None) -> bytes:
     try:
-        data = json.loads(payload.decode('utf-8'))
+        data = json.loads(payload.decode("utf-8"))
         if "messages" in data and isinstance(data["messages"], list):
             data["messages"] = truncate_context(data["messages"], max_tokens=8000)
         if user:
             data["user"] = user
-        return json.dumps(data).encode('utf-8')
+        return json.dumps(data).encode("utf-8")
     except (json.JSONDecodeError, UnicodeDecodeError):
-        pass # Return raw payload if it's not JSON
+        pass  # Return raw payload if it's not JSON
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Shunt middleware error: {e}")
     return payload
 
@@ -91,15 +98,21 @@ class ShuntMiddleware(CustomLogger):
                 continue
             elif isinstance(content, str):
                 if not self._is_safe_input(content):
-                    raise ValueError("Blocked by ShuntMiddleware: Malicious input detected.")
+                    raise ValueError(
+                        "Blocked by ShuntMiddleware: Malicious input detected."
+                    )
             elif isinstance(content, list):
                 for part in content:
                     if isinstance(part, dict) and part.get("type") == "text":
                         if not self._is_safe_input(part.get("text", "")):
-                            raise ValueError("Blocked by ShuntMiddleware: Malicious input detected.")
+                            raise ValueError(
+                                "Blocked by ShuntMiddleware: Malicious input detected."
+                            )
                     elif isinstance(part, str):
                         if not self._is_safe_input(part):
-                            raise ValueError("Blocked by ShuntMiddleware: Malicious input detected.")
+                            raise ValueError(
+                                "Blocked by ShuntMiddleware: Malicious input detected."
+                            )
 
         if data is not None:
             return data
