@@ -1,3 +1,4 @@
+{{- if .Values.unifiedApi.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -10,6 +11,7 @@ spec:
       app: unified-api
   policyTypes:
     - Ingress
+{{- if .Values.tailscaleIngress.enabled }}
   ingress:
     - from:
         - podSelector:
@@ -18,3 +20,75 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+{{- else }}
+  ingress: []
+{{- end }}
+{{- end }}
+---
+{{- if and .Values.tailscaleIngress.enabled .Values.frontend.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-frontend-ingress
+  labels:
+    app: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: tailscale-ingress
+      ports:
+        - protocol: TCP
+          port: 3000
+{{- end }}
+---
+{{- if .Values.tailscaleIngress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-tailscale-egress
+  labels:
+    app: tailscale-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: tailscale-ingress
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: UDP
+          port: 443
+        - protocol: TCP
+          port: 3478
+        - protocol: UDP
+          port: 3478
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: unified-api
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 3000
+{{- end }}

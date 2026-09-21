@@ -30,9 +30,24 @@ tailscaleIngress:
   # kubectl create secret generic tailscale-auth --from-literal=TS_AUTHKEY=tskey-auth-xxxx
   secretName: tailscale-auth
   caddyConfig: |
+    {
+        auto_https off
+        servers {
+            timeouts {
+                read_body 120s
+                read_header 5s
+            }
+            trusted_proxies static 127.0.0.1/8 ::1/128
+        }
+    }
+
     # Caddyfile config
     # Route via plain HTTP since Tailscale serve terminates TLS and injects Tailscale-User-Login
     http://127.0.0.1:8080 {
+        request_body {
+            max_size 10MB
+        }
+
         # Proxy routes
         handle /v1/chat* {
             reverse_proxy unified-api:8000

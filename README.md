@@ -11,6 +11,7 @@ Gordon Control Plane (`gordon-control-plane`) is a Two-Plane multi-agent orchest
 - **Centralized MCP**: Model Context Protocol server manager that standardizes tool and context delivery to agents.
 - **OpenShell Sandbox**: Secure container isolation, enforcing network restrictions and filesystem boundaries for agent tasks.
 - **Cloud-Native Infrastructure**: Kubernetes/Helm-first deployment (`charts/agent-platform`), backed by PostgreSQL for state.
+- **Tailscale Ingress**: Exposes platform services securely over a private Tailnet without requiring public IP addresses or traditional Ingress Controllers. Utilizes Caddy for reverse-proxy routing and volumetric limits.
 
 ## Architecture
 
