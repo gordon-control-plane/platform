@@ -57,6 +57,7 @@ To operate agents safely at scale, the architecture enforces multiple layers of 
 4. **API Authentication:** Temporal gRPC/REST APIs use mTLS/JWT authentication. Signals from the Interactive Plane are treated as untrusted and strictly validated.
 5. **MCP Authorization:** Tool invocations via the Centralized MCP require scoped authorization aligned with the calling agent's identity.
 6. **Cross-Tenant Data Isolation:** Gateway caches, tool contexts, and states are strictly keyed by tenant/agent ID to prevent data bleed.
+7. **Ingress Privilege Escalation (Accepted Risk):** Tailscale requires the `create` verb on secrets to initialize `TS_KUBE_SECRET`. Since Kubernetes RBAC cannot restrict `create` to specific `resourceNames`, the unprivileged Tailscale pod possesses the persistent right to create arbitrary secrets in its namespace. This is an accepted operational risk to enable PVC-less state storage.
 
 ## 5. Key Global Risks & Mitigations
 
