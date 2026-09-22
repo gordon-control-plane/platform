@@ -84,10 +84,16 @@ litellm:
     port: 4000
 
 temporal:
+  enabled: true
   server:
     frontend:
       service:
+        type: NodePort
+        nodePort: 30723
+
 
 postgresql:
-  primary:
-    service:
+  enabled: true
+  nodePort:
+    enabled: true
+    port: 30543
