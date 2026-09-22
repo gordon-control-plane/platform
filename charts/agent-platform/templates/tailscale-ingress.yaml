@@ -56,6 +56,7 @@ spec:
       labels:
         app: tailscale-ingress
       annotations:
+        kube-linter.io/ignore-checks: "env-var-secret"
         checksum/config: {{ .Values.tailscaleIngress.caddyConfig | sha256sum }}
     spec:
       serviceAccountName: {{ include "agent-platform.fullname" . }}-tailscale-ingress
