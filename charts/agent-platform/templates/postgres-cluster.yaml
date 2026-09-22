@@ -8,7 +8,7 @@ spec:
   teamId: "gordon"
   volume:
     size: 10Gi
-  numberOfInstances: 2
+  numberOfInstances: 1
   users:
     gordon:
       - superuser

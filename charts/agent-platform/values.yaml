@@ -59,10 +59,10 @@ unifiedApi:
   enabled: true
   replicaCount: 1
   image:
-    repository: agent-unified-api
+    repository: localhost/agent-unified-api
     tag: local
     pullPolicy: IfNotPresent
-  githubRepo: "YOUR_ORG/YOUR_CONFIG_REPO" # MUST CHANGE THIS!
+  githubRepo: "gordon-control-plane/platform" # MUST CHANGE THIS!
   service:
     port: 8000
 
@@ -70,7 +70,7 @@ frontend:
   enabled: true
   replicaCount: 1
   image:
-    repository: agent-frontend
+    repository: localhost/agent-frontend
     tag: local
     pullPolicy: IfNotPresent
   env:
@@ -82,3 +82,16 @@ litellm:
   enabled: true
   service:
     port: 4000
+
+temporal:
+  server:
+    securityContext:
+      runAsUser: null
+      fsGroup: null
+    additionalVolumes:
+      - name: persistence
+        emptyDir:
+          sizeLimit: 1Gi
+    additionalVolumeMounts:
+      - name: persistence
+        mountPath: /var/lib/temporal

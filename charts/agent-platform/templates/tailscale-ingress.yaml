@@ -14,6 +14,8 @@ metadata:
   labels:
     app: tailscale-ingress
 spec:
+  strategy:
+    type: Recreate
   replicas: {{ .Values.tailscaleIngress.replicaCount }}
   selector:
     matchLabels:
@@ -37,14 +39,15 @@ spec:
                   key: TS_AUTHKEY
             - name: TS_HOSTNAME
               value: {{ .Values.tailscaleIngress.hostname }}
-            - name: TS_DEST_IP
-              value: "127.0.0.1"
             - name: TS_EXTRA_ARGS
               value: "--ssh"
+            - name: TS_KUBE_SECRET
+              value: ""
+            - name: TS_SOCKET
+              value: "/var/run/tailscale/tailscaled.sock"
           # No NET_ADMIN needed as it runs in userspace mode
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -64,12 +67,14 @@ spec:
               echo "Waiting for Tailscale socket..."
               while [ ! -S /var/run/tailscale/tailscaled.sock ]; do sleep 1; done
               echo "Configuring tailscale serve..."
-              tailscale serve --bg --set-path / http://127.0.0.1:8080
+              until tailscale serve --bg --set-path / http://127.0.0.1:8080; do
+                echo "Retrying tailscale serve..."
+                sleep 2
+              done
               echo "Serve configured. Idling."
               tail -f /dev/null
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
           volumeMounts:
             - name: tailscale-state
@@ -88,8 +93,7 @@ spec:
               mountPath: /etc/caddy/Caddyfile
               subPath: Caddyfile
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
 
       volumes:
@@ -97,7 +101,8 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "agent-platform.fullname" . }}-tailscale-state
         - name: tailscale-run
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 1Gi
         - name: caddy-config
           configMap:
             name: {{ include "agent-platform.fullname" . }}-caddy-config
