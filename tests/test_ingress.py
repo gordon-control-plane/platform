@@ -16,11 +16,7 @@ def render_chart():
         check=True,
     )
     # Parse all YAML documents
-    docs = []
-    for doc in yaml.safe_load_all(result.stdout):
-        if doc:
-            docs.append(doc)
-    return docs
+    return list(filter(None, yaml.safe_load_all(result.stdout)))
 
 
 @pytest.fixture(scope="module")
@@ -28,15 +24,20 @@ def manifests():
     return render_chart()
 
 
-def test_tailscale_deployment(manifests):
-    deployment = next(
+def find_manifest(manifests, kind, name):
+    return next(
         (
             d
             for d in manifests
-            if d.get("kind") == "Deployment"
-            and d["metadata"]["name"] == "test-release-agent-platform-tailscale-ingress"
+            if d.get("kind") == kind and d.get("metadata", {}).get("name") == name
         ),
         None,
+    )
+
+
+def test_tailscale_deployment(manifests):
+    deployment = find_manifest(
+        manifests, "Deployment", "test-release-agent-platform-tailscale-ingress"
     )
     assert deployment is not None, "Tailscale deployment should be rendered"
 
@@ -94,25 +95,13 @@ def test_tailscale_deployment(manifests):
 
 
 def test_tailscale_rbac(manifests):
-    sa = next(
-        (
-            d
-            for d in manifests
-            if d.get("kind") == "ServiceAccount"
-            and d["metadata"]["name"] == "test-release-agent-platform-tailscale-ingress"
-        ),
-        None,
+    sa = find_manifest(
+        manifests, "ServiceAccount", "test-release-agent-platform-tailscale-ingress"
     )
     assert sa is not None, "ServiceAccount should be created"
 
-    role = next(
-        (
-            d
-            for d in manifests
-            if d.get("kind") == "Role"
-            and d["metadata"]["name"] == "test-release-agent-platform-tailscale-ingress"
-        ),
-        None,
+    role = find_manifest(
+        manifests, "Role", "test-release-agent-platform-tailscale-ingress"
     )
     assert role is not None, "Role should be created"
 
@@ -128,14 +117,8 @@ def test_tailscale_rbac(manifests):
 
 
 def test_caddy_config(manifests):
-    cm = next(
-        (
-            d
-            for d in manifests
-            if d.get("kind") == "ConfigMap"
-            and d["metadata"]["name"] == "test-release-agent-platform-caddy-config"
-        ),
-        None,
+    cm = find_manifest(
+        manifests, "ConfigMap", "test-release-agent-platform-caddy-config"
     )
     assert cm is not None, "Caddy ConfigMap should be created"
 
@@ -148,28 +131,15 @@ def test_caddy_config(manifests):
 
 
 def test_network_policies(manifests):
-    ingress_np = next(
-        (
-            d
-            for d in manifests
-            if d.get("kind") == "NetworkPolicy"
-            and d["metadata"]["name"]
-            == "test-release-agent-platform-unified-api-ingress"
-        ),
-        None,
+    ingress_np = find_manifest(
+        manifests, "NetworkPolicy", "test-release-agent-platform-unified-api-ingress"
     )
     assert (
         ingress_np is not None
     ), "Unified API Ingress NP should be created when Tailscale is enabled"
 
-    egress_np = next(
-        (
-            d
-            for d in manifests
-            if d.get("kind") == "NetworkPolicy"
-            and d["metadata"]["name"] == "test-release-agent-platform-tailscale-egress"
-        ),
-        None,
+    egress_np = find_manifest(
+        manifests, "NetworkPolicy", "test-release-agent-platform-tailscale-egress"
     )
     assert egress_np is not None, "Tailscale Egress NP should be created"
 

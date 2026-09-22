@@ -18,7 +18,6 @@ secrets:
 # Unprivileged Sidecar Bridge Ingress
 tailscaleIngress:
   enabled: true
-  replicaCount: 1
   image:
     repository: tailscale/tailscale
     tag: latest
@@ -48,10 +47,6 @@ tailscaleIngress:
             max_size 10MB
         }
 
-        # Proxy routes
-        handle /v1/chat* {
-            reverse_proxy unified-api:8000
-        }
 
         handle /v1/* {
             reverse_proxy unified-api:8000

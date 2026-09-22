@@ -107,8 +107,6 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              echo "Waiting for Tailscale socket..."
-              while [ ! -S /var/run/tailscale/tailscaled.sock ]; do sleep 1; done
               echo "Configuring tailscale serve..."
               tailscale serve --bg --set-path / http://127.0.0.1:8080
               echo "Serve configured."
