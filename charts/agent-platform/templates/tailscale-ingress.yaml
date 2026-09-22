@@ -76,8 +76,6 @@ spec:
                   key: TS_AUTHKEY
             - name: TS_HOSTNAME
               value: {{ .Values.tailscaleIngress.hostname }}
-            - name: TS_DEST_IP
-              value: "127.0.0.1"
             - name: TS_EXTRA_ARGS
               value: "--ssh"
           securityContext:
@@ -96,6 +94,7 @@ spec:
                 - status
             initialDelaySeconds: 2
             periodSeconds: 5
+            failureThreshold: 12
           volumeMounts:
             - name: tailscale-run
               mountPath: /var/run/tailscale

@@ -73,6 +73,8 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+        - protocol: UDP
+{{- if .Values.unifiedApi.enabled }}
     - to:
         - podSelector:
             matchLabels:
@@ -80,6 +82,8 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+{{- end }}
+{{- if .Values.frontend.enabled }}
     - to:
         - podSelector:
             matchLabels:
@@ -87,4 +91,5 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+{{- end }}
 {{- end }}

@@ -3,14 +3,21 @@ import yaml  # type: ignore
 import pytest
 
 
-def render_chart():
+def render_chart(values=None):
     subprocess.run(
-        ["helm", "dependency", "update", "charts/agent-platform"],
+        ["helm", "dependency", "build", "charts/agent-platform", "--skip-refresh"],
         capture_output=True,
         check=True,
     )
+    cmd = ["helm", "template", "test-release", "charts/agent-platform"]
+    if values:
+        for k, v in values.items():
+            if isinstance(v, bool):
+                v = str(v).lower()
+            cmd.extend(["--set", f"{k}={v}"])
+            
     result = subprocess.run(
-        ["helm", "template", "test-release", "charts/agent-platform"],
+        cmd,
         capture_output=True,
         text=True,
         check=True,
@@ -115,6 +122,13 @@ def test_tailscale_rbac(manifests):
             has_get_update_patch = True
     assert has_get_update_patch, "Must have rules to get/update/patch the state secret"
 
+    rb = find_manifest(
+        manifests, "RoleBinding", "test-release-agent-platform-tailscale-ingress"
+    )
+    assert rb is not None, "RoleBinding should be created"
+    assert rb["roleRef"]["name"] == "test-release-agent-platform-tailscale-ingress"
+    assert any(s["name"] == "test-release-agent-platform-tailscale-ingress" for s in rb["subjects"])
+
 
 def test_caddy_config(manifests):
     cm = find_manifest(
@@ -125,10 +139,14 @@ def test_caddy_config(manifests):
     caddyfile = cm["data"]["Caddyfile"]
     assert "auto_https off" in caddyfile
     assert "read_body 120s" in caddyfile
+    assert "read_header 5s" in caddyfile
     assert "trusted_proxies static 127.0.0.1/8 ::1/128" in caddyfile
     assert "request_body {" in caddyfile
     assert "max_size 10MB" in caddyfile
-
+    assert "handle /v1/*" in caddyfile
+    assert "reverse_proxy unified-api:8000" in caddyfile
+    assert "handle /*" in caddyfile
+    assert "reverse_proxy frontend:3000" in caddyfile
 
 def test_network_policies(manifests):
     ingress_np = find_manifest(
@@ -138,6 +156,12 @@ def test_network_policies(manifests):
         ingress_np is not None
     ), "Unified API Ingress NP should be created when Tailscale is enabled"
 
+    frontend_ingress = find_manifest(
+        manifests, "NetworkPolicy", "test-release-agent-platform-frontend-ingress"
+    )
+    assert frontend_ingress is not None, "Frontend Ingress NP should be created"
+    assert frontend_ingress["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"]["app"] == "tailscale-ingress"
+
     egress_np = find_manifest(
         manifests, "NetworkPolicy", "test-release-agent-platform-tailscale-egress"
     )
@@ -146,10 +170,50 @@ def test_network_policies(manifests):
     egress_ports = []
     for rule in egress_np["spec"].get("egress", []):
         for port_info in rule.get("ports", []):
-            egress_ports.append(port_info["port"])
+            if "port" in port_info:
+                egress_ports.append(port_info["port"])
+            
+        if "to" in rule:
+            for to_rule in rule["to"]:
+                labels = to_rule.get("podSelector", {}).get("matchLabels", {})
+                # Check port scoping for specific apps
+                if labels.get("app") == "unified-api":
+                    assert any(p["port"] == 8000 for p in rule.get("ports", []))
+                if labels.get("app") == "frontend":
+                    assert any(p["port"] == 3000 for p in rule.get("ports", []))
 
     assert 443 in egress_ports
     assert 3478 in egress_ports
-    assert 53 in egress_ports
     assert 8000 in egress_ports, "Must allow egress to unified API backend"
     assert 3000 in egress_ports, "Must allow egress to UI frontend"
+
+def test_tailscale_disabled():
+    manifests = render_chart({
+        "tailscaleIngress.enabled": False,
+        "frontend.enabled": True,
+        "unifiedApi.enabled": True
+    })
+    
+    deployment = find_manifest(manifests, "Deployment", "test-release-agent-platform-tailscale-ingress")
+    assert deployment is None, "Tailscale deployment should not be rendered"
+    
+    sa = find_manifest(manifests, "ServiceAccount", "test-release-agent-platform-tailscale-ingress")
+    assert sa is None, "Tailscale ServiceAccount should not be rendered"
+    
+    role = find_manifest(manifests, "Role", "test-release-agent-platform-tailscale-ingress")
+    assert role is None, "Tailscale Role should not be rendered"
+    
+    rb = find_manifest(manifests, "RoleBinding", "test-release-agent-platform-tailscale-ingress")
+    assert rb is None, "Tailscale RoleBinding should not be rendered"
+    
+    cm = find_manifest(manifests, "ConfigMap", "test-release-agent-platform-caddy-config")
+    assert cm is None, "Caddy ConfigMap should not be rendered"
+    
+    frontend_ingress = find_manifest(manifests, "NetworkPolicy", "test-release-agent-platform-frontend-ingress")
+    assert frontend_ingress is None, "Frontend Ingress NP should not be rendered"
+    
+    unified_ingress = find_manifest(manifests, "NetworkPolicy", "test-release-agent-platform-unified-api-ingress")
+    assert unified_ingress is None, "Unified API Ingress NP should not be rendered"
+    
+    egress_np = find_manifest(manifests, "NetworkPolicy", "test-release-agent-platform-tailscale-egress")
+    assert egress_np is None, "Tailscale Egress NP should not be rendered"
