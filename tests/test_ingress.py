@@ -5,7 +5,7 @@ import pytest
 
 def render_chart(values=None):
     subprocess.run(
-        ["helm", "dependency", "build", "charts/agent-platform", "--skip-refresh"],
+        ["helm", "dependency", "update", "charts/agent-platform"],
         capture_output=True,
         check=True,
     )
