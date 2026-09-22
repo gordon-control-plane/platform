@@ -11,6 +11,7 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
+      nodePort: {{ .Values.postgresql.nodePort.port }}
   selector:
     application: spilo
     cluster-name: {{ .Release.Name }}-db

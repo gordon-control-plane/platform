@@ -41,6 +41,8 @@ deploy: setup check-cluster
 	@helm repo add postgres-operator-charts https://opensource.zalando.com/postgres-operator/charts/postgres-operator || true
 	@helm upgrade --install postgres-operator postgres-operator-charts/postgres-operator \
 		--namespace $(NAMESPACE) --create-namespace
+	@echo "Waiting for postgresql CRD to be registered..."
+	@kubectl wait --for condition=established --timeout=60s crd/postgresqls.acid.zalan.do || true
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
 	@. .env && kubectl create secret docker-registry ghcr-secret \
 		--namespace $(NAMESPACE) \
@@ -53,6 +55,8 @@ deploy: setup check-cluster
 		--set global.image.tag="$(GIT_SHA)" \
 		--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
 		--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
+		--set temporal.server.frontend.service.type=NodePort \
+		--set postgresql.nodePort.enabled=true \
 		--wait --timeout 600s
 
 teardown: check-cluster

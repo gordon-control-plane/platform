@@ -88,12 +88,12 @@ temporal:
   server:
     frontend:
       service:
-        type: NodePort
+        type: ClusterIP
         nodePort: 30723
 
 
 postgresql:
   enabled: true
   nodePort:
-    enabled: true
+    enabled: false
     port: 30543

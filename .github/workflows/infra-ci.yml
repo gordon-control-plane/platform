@@ -84,7 +84,7 @@ jobs:
           export KUBE_API_URL
           make deploy KUBE_API_URL="$KUBE_API_URL"
       - name: Map NodePorts to localhost
-        run: echo '127.0.0.1 agent-platform-postgresql agent-platform-temporal-frontend' | sudo tee -a /etc/hosts
+        run: echo '127.0.0.1 agent-platform-db agent-platform-db-nodeport agent-platform-temporal-frontend' | sudo tee -a /etc/hosts
       - name: Run Integration Tests
         run: |
           # Verify tests exist and have no syntax errors before applying filters
