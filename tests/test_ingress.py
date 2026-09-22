@@ -29,7 +29,7 @@ def find_manifest(manifests, kind, name):
         (
             d
             for d in manifests
-            if d.get("kind") == kind and d.get("metadata", {}).get("name") == name
+            if d.get("kind") == kind and (d.get("metadata") or {}).get("name") == name
         ),
         None,
     )

@@ -1,4 +1,4 @@
-{{- if .Values.unifiedApi.enabled }}
+{{- if and .Values.unifiedApi.enabled .Values.tailscaleIngress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -11,7 +11,6 @@ spec:
       app: unified-api
   policyTypes:
     - Ingress
-{{- if .Values.tailscaleIngress.enabled }}
   ingress:
     - from:
         - podSelector:
@@ -20,9 +19,6 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
-{{- else }}
-  ingress: []
-{{- end }}
 {{- end }}
 ---
 {{- if and .Values.tailscaleIngress.enabled .Values.frontend.enabled }}
