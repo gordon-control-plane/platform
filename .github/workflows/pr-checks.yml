@@ -10,7 +10,9 @@ jobs:
         run: pip install uv && uv sync
       - name: Run prek checks
         run: uvx prek run --all-files
-      - name: Run pytest
-        run: uv run pytest tests/
+      - name: Run unit tests
+        run: |
+          uv run pytest tests/unit/ || exit_code=$?
+          if [ "${exit_code:-0}" -ne 0 ] && [ "${exit_code:-0}" -ne 5 ]; then exit "$exit_code"; fi
       - name: Helm lint
         run: helm lint charts/agent-platform

@@ -82,3 +82,12 @@ litellm:
   enabled: true
   service:
     port: 4000
+
+temporal:
+  server:
+    frontend:
+      service:
+
+postgresql:
+  primary:
+    service:

@@ -12,7 +12,7 @@ KUBE_API_URL ?= $(if $(findstring 127.0.0.1,$(CURRENT_API_URL)),$(CURRENT_API_UR
 
 cluster-up:
 	@echo "Creating local kind cluster..."
-	@kind create cluster --name gordon-dev || true
+	@kind create cluster --name gordon-dev --config scripts/kind-config.yaml || true
 
 cluster-down:
 	@echo "Deleting local kind cluster..."
@@ -37,10 +37,6 @@ check-cluster:
 
 deploy: setup check-cluster
 	@echo "Deploying to cluster API: $(KUBE_API_URL)..."
-	@# Install Zalando operator if not present
-	@helm repo add postgres-operator-charts https://opensource.zalando.com/postgres-operator/charts/postgres-operator || true
-	@helm upgrade --install postgres-operator postgres-operator-charts/postgres-operator \
-		--namespace $(NAMESPACE) --create-namespace
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
 	@. .env && kubectl create secret docker-registry ghcr-secret \
 		--namespace $(NAMESPACE) \
@@ -59,7 +55,11 @@ teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)
 
 test:
-	uv run pytest tests/
+	uv run pytest tests/unit/
+
+test-integration: check-cluster
+	@echo "Running Integration tests..."
+	uv run pytest tests/integration/
 
 test-e2e: check-cluster
 	@echo "Running E2E tests against API: $(KUBE_API_URL)..."
