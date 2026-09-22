@@ -1,0 +1,67 @@
+import pytest
+import httpx
+from unittest.mock import patch, AsyncMock
+from orchestrator.remote_saver import AsyncHttpSaver
+from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
+
+@pytest.fixture
+def saver():
+    return AsyncHttpSaver(base_url="http://test-unified-api:8000", token="test-token")
+
+@pytest.mark.asyncio
+async def test_aget_tuple_found(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    from unittest.mock import MagicMock
+    mock_resp.json = MagicMock(return_value={
+        "config": config,
+        "checkpoint": {"v": 1, "ts": "2023-01-01T00:00:00Z", "id": "cp1", "channel_values": {}},
+        "metadata": {"source": "test", "step": 1, "writes": {}, "parents": {}},
+        "parent_config": None
+    })
+    
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        tup = await saver.aget_tuple(config)
+        assert tup is not None
+        assert tup.config == config
+        assert tup.checkpoint["id"] == "cp1"
+
+@pytest.mark.asyncio
+async def test_aget_tuple_not_found(saver):
+    config = {"configurable": {"thread_id": "thread-2"}}
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 404
+    
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        tup = await saver.aget_tuple(config)
+        assert tup is None
+
+@pytest.mark.asyncio
+async def test_aput(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    checkpoint = {"v": 1, "ts": "2023-01-01T00:00:00Z", "id": "cp1", "channel_values": {}}
+    metadata = {"source": "test", "step": 1, "writes": {}, "parents": {}}
+    new_versions = {}
+    
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    from unittest.mock import MagicMock
+    mock_resp.json = MagicMock(return_value={"config": config})
+    
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        res = await saver.aput(config, checkpoint, metadata, new_versions)
+        assert res == config
+
+@pytest.mark.asyncio
+async def test_aput_writes(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    writes = [("task1", "data")]
+    task_id = "task-1"
+    
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        await saver.aput_writes(config, writes, task_id)
+        # Assuming no exception means success

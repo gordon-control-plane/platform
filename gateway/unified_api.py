@@ -17,12 +17,38 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Unified API BFF")
 
+import json
+from psycopg_pool import AsyncConnectionPool
+from psycopg.rows import dict_row
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
 http_client = httpx.AsyncClient(timeout=30.0)
+
+db_pool: AsyncConnectionPool | None = None
+checkpointer: AsyncPostgresSaver | None = None
+
+@app.on_event("startup")
+async def startup_event():
+    global db_pool, checkpointer
+    db_uri = os.environ.get("DATABASE_URL")
+    if db_uri:
+        db_pool = AsyncConnectionPool(
+            db_uri,
+            min_size=2,
+            max_size=10,
+            kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": 0},
+        )
+        await db_pool.open()
+        checkpointer = AsyncPostgresSaver(db_pool)
+        await checkpointer.setup()
+
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await http_client.aclose()
+    if db_pool:
+        await db_pool.close()
 
 
 allowed_origins = os.environ.get(
@@ -123,11 +149,19 @@ async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
     content_length = request.headers.get("content-length")
     if content_length and int(content_length) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Payload too large")
-    raw_body = await request.body()
-    if len(raw_body) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Payload too large")
+    import re
+    malicious_regex = re.compile(r"\.\./|<script>|system\(|exec\(", re.IGNORECASE)
 
-    body = raw_body
+    async def validated_stream():
+        buffer = ""
+        async for chunk in request.stream():
+            buffer += chunk.decode('utf-8', errors='ignore')
+            if malicious_regex.search(buffer):
+                raise HTTPException(status_code=400, detail="Malicious input detected.")
+            buffer = buffer[-20:]
+            yield chunk
+            
+    body = validated_stream()
 
     headers = dict(request.headers)
     for h in ["host", "content-length", "x-requested-with"]:
@@ -173,6 +207,37 @@ async def create_workflow(req: WorkflowRequest, user: str = Depends(get_current_
     # Submit Temporal workflow (Stub)
     return {"id": "wf_12345", "status": "started", "user": user}
 
+@app.get("/api/checkpoints/{thread_id}")
+async def get_checkpoint(thread_id: str, checkpoint_ns: str = "", checkpoint_id: str = "", user: str = Depends(get_current_user)):
+    if not checkpointer:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    
+    config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": checkpoint_ns, "checkpoint_id": checkpoint_id}}
+    tup = await checkpointer.aget_tuple(config)
+    if not tup:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+    return {
+        "config": tup.config,
+        "checkpoint": tup.checkpoint,
+        "metadata": tup.metadata,
+        "parent_config": tup.parent_config
+    }
+
+@app.post("/api/checkpoints/{thread_id}")
+async def save_checkpoint(thread_id: str, req: Request, user: str = Depends(get_current_user)):
+    if not checkpointer:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    data = await req.json()
+    config = await checkpointer.aput(data["config"], data["checkpoint"], data["metadata"], data["new_versions"])
+    return {"config": config}
+
+@app.post("/api/checkpoints/{thread_id}/writes")
+async def save_checkpoint_writes(thread_id: str, req: Request, user: str = Depends(get_current_user)):
+    if not checkpointer:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    data = await req.json()
+    await checkpointer.aput_writes(data["config"], data["writes"], data["task_id"])
+    return {"status": "ok"}
 
 @app.get("/api/workflows/{workflow_id}/state")
 async def get_workflow_state(workflow_id: str, user: str = Depends(get_current_user)):
@@ -230,20 +295,23 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
             "Authorization": f"Bearer {github_token}",
             "Accept": "application/vnd.github.v3+json",
         }
-        prs_url = f"https://api.github.com/repos/{repo}/pulls?state=open"
-        resp = await client.get(prs_url, headers=headers)
-
-        if resp.status_code == 200:
-            prs = resp.json()
-            config_prs = [
-                pr
-                for pr in prs
-                if pr.get("head", {}).get("ref", "").startswith("config-update-")
-            ]
-            if config_prs:
-                raise HTTPException(
-                    status_code=409, detail="A configuration PR is already open"
-                )
+        prs_url = f"https://api.github.com/repos/{repo}/pulls?state=open&head={repo.split('/')[0]}:config-update-"
+        
+        config_prs = []
+        for page in range(1, 10):
+            page_url = f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100&page={page}"
+            page_resp = await client.get(page_url, headers=headers)
+            if page_resp.status_code != 200:
+                break
+            page_prs = page_resp.json()
+            if not page_prs:
+                break
+            config_prs.extend([pr for pr in page_prs if pr.get("head", {}).get("ref", "").startswith("config-update-")])
+            
+        if config_prs:
+            raise HTTPException(
+                status_code=409, detail="A configuration PR is already open"
+            )
 
         # Real GitOps PR Implementation
         branch_name = f"config-update-{uuid.uuid4().hex[:8]}"

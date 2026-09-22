@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: unified-api
-          image: "{{ .Values.unifiedApi.image.repository }}:{{ .Values.unifiedApi.image.tag }}"
+          image: "{{ .Values.global.image.repository | default \"ghcr.io/gordon-control-plane\" }}/unified-api:{{ .Values.global.image.tag | default \"latest\" }}"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

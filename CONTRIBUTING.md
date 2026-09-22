@@ -75,6 +75,7 @@ Deploying the base infrastructure (PostgreSQL, Temporal, LiteLLM proxy, Agent Su
 - Follow the infrastructure guides (TBD) for deploying the chart and establishing the required sandbox configurations.
 
 ### Agent Substrate Sandbox Capabilities
+The `temporal-worker` pod acts as the Agent Substrate Sandbox. When implementing workflows:
 - Assume the execution environment drops all elevated capabilities (e.g., `CAP_SYS_ADMIN`).
 - Sandboxes operate on a read-only root filesystem.
 - Network routes to cluster-internal control plane services are strictly dropped. Allowlist required MCP endpoints explicitly.

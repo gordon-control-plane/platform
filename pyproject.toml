@@ -17,6 +17,7 @@ dependencies = [
     "httpx",
     "orjson",
     "pyyaml>=6.0.3",
+    "pytest-timeout>=2.4.0",
 ]
 
 [dependency-groups]
@@ -33,3 +34,4 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["tests/e2e"]
+timeout = 30

@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: cluster-up cluster-down setup deploy teardown test-e2e test lint format
+.PHONY: cluster-up cluster-down setup deploy teardown test-e2e test lint format up test-ci
 
 NAMESPACE ?= gordon
 RELEASE_NAME ?= agent-platform
@@ -12,7 +12,14 @@ KUBE_API_URL ?= $(if $(findstring 127.0.0.1,$(CURRENT_API_URL)),$(CURRENT_API_UR
 
 cluster-up:
 	@echo "Creating local kind cluster..."
-	@kind create cluster --name gordon-dev || true
+	@cat <<EOF | kind create cluster --name gordon-dev --config=- || true
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+EOF
+	@echo "Installing Calico CNI for network policies..."
+	@kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.3/manifests/calico.yaml
 
 cluster-down:
 	@echo "Deleting local kind cluster..."
@@ -54,9 +61,10 @@ deploy: setup check-cluster
 	--set global.image.tag="$(GIT_SHA)" \
 	--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
 	--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
+	--set minio.auth.rootPassword="$$MINIO_ROOT_PASSWORD" \
 	--wait --timeout 600s
 
-	up: cluster-up
+up: cluster-up
 	@echo "Building local images..."
 	@docker build -t ghcr.io/gordon-control-plane/unified-api:$(GIT_SHA) -f build/Dockerfile.unified-api .
 	@docker build -t ghcr.io/gordon-control-plane/agent-platform-worker:$(GIT_SHA) -f build/Dockerfile.worker .
@@ -67,11 +75,12 @@ deploy: setup check-cluster
 
 test-ci:
 	@echo "Starting Temporal dev server in Docker..."
-	docker run --rm -d --name temporal-dev -p 7233:7233 -p 8233:8233 temporalio/admin-tools:latest temporal server start-dev --ui-port 8233
+	docker run --rm -d --name temporal-dev -p 7233:7233 -p 8233:8233 temporalio/admin-tools:latest temporal server start-dev --ui-port 8233 --ip 0.0.0.0
 	@echo "Waiting for Temporal to be ready..."
-	sleep 5
-	uv run pytest tests/ || (docker stop temporal-dev && exit 1)
+	@while ! curl --retry 5 --retry-all-errors -sSf http://localhost:8233 > /dev/null 2>&1; do sleep 1; done
+	uv run pytest tests/ --ignore=tests/e2e/ || (docker stop temporal-dev && exit 1)
 	docker stop temporal-dev
+	./tests/smoke_test.sh
 
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)

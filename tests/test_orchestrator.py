@@ -1,8 +1,10 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from temporalio.testing import WorkflowEnvironment
+from temporalio.exceptions import ActivityError
+from temporalio.client import WorkflowFailureError
 from temporalio.worker import Worker
 
 import orchestrator.temporal_worker as worker_module
@@ -14,21 +16,30 @@ from orchestrator.temporal_worker import (
 )
 
 
-class MockMemorySaver(MemorySaver):
-    async def setup(self):
-        pass
-
 
 @pytest.mark.asyncio
 async def test_agent_workflow():
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        # Mock Postgres connection and setup so we don't need a real DB
-        with patch(
-            "orchestrator.temporal_worker.AsyncPostgresSaver",
-            return_value=MockMemorySaver(),
-        ), patch("psycopg_pool.AsyncConnectionPool.open", new_callable=AsyncMock):
+    from unittest.mock import AsyncMock, MagicMock
+    mock_get = MagicMock()
+    mock_get.status_code = 404
+    mock_get.raise_for_status = MagicMock()
+    
+    mock_post = MagicMock()
+    mock_post.status_code = 200
+    mock_post.raise_for_status = MagicMock()
+    mock_post.json = MagicMock(return_value={"config": {}})
+    
+    # Better way: Just patch the methods to return a coroutine that returns the MagicMock
+    async def mock_get_coro(*args, **kwargs):
+        return mock_get
+        
+    async def mock_post_coro(*args, **kwargs):
+        return mock_post
+            
+    with patch("httpx.AsyncClient.get", side_effect=mock_get_coro), \
+         patch("httpx.AsyncClient.post", side_effect=mock_post_coro):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
             await worker_module.init_worker_state()
-
             # Start worker
             try:
                 # Start worker
@@ -63,5 +74,18 @@ async def test_agent_workflow():
                         task_queue="test-task-queue",
                     )
                     assert result2 == "blockers_identified"
+
+                    # Test ValueError for invalid workflow type
+                    job_input3 = JobInput(
+                        job_id="test-job-3", workflow_type="invalid_type"
+                    )
+                    with pytest.raises(WorkflowFailureError) as exc_info:
+                        await env.client.execute_workflow(
+                            AgentWorkflow.run,
+                            job_input3,
+                            id="test-workflow-3",
+                            task_queue="test-task-queue",
+                        )
+                    assert "Unknown workflow type" in str(exc_info.value.cause.cause)
             finally:
                 await cleanup_worker_state()

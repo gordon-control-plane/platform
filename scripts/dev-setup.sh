@@ -29,18 +29,20 @@ done
 if [ ! -f "$ENV_FILE" ]; then
     echo "Creating $ENV_FILE..."
 
-     if [ -z "$GH_PAT" ]; then
-         echo "Error: GH_PAT is required for initial setup. Provide via --gh-pat or GH_PAT environment variable."
-         exit 1
-     fi
+    if [ -z "$GH_PAT" ]; then
+        echo "Error: GH_PAT is required for initial setup. Provide via --gh-pat or GH_PAT environment variable."
+        exit 1
+    fi
     # Generate secure random passwords
     lf_secret=$(openssl rand -base64 32)
     lf_salt=$(openssl rand -hex 16)
+    minio_pw=$(openssl rand -base64 32)
 
     cat <<EOF > "$ENV_FILE"
 GH_PAT="${GH_PAT}"
 LANGFUSE_NEXTAUTH_SECRET="${lf_secret}"
 LANGFUSE_SALT="${lf_salt}"
+MINIO_ROOT_PASSWORD="${minio_pw}"
 EOF
     echo "Secrets securely generated and saved to $ENV_FILE"
 else

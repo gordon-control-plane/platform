@@ -108,6 +108,32 @@ def test_chat_proxy():
         assert response.status_code == 200
         assert response.text == "data: test\\n\\n"
 
+def test_chat_proxy_payload_too_large():
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "dev@example.com",
+        "Content-Length": str((10 * 1024 * 1024) + 1)
+    }
+    response = client.post("/v1/chat/completions", content=b"a" * int(headers["Content-Length"]), headers=headers)
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Payload too large"
+
+def test_chat_proxy_streaming_validator():
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Tailscale-User-Login": "dev@example.com",
+    }
+    
+    # A malicious string split across multiple chunks
+    def stream_malicious_payload():
+        yield b'{"mess'
+        yield b'ages": [{"role": "user", '
+        yield b'"content": "sys'
+        yield b'tem(foo)"}]}'
+        
+    response = client.post("/v1/chat/completions", content=stream_malicious_payload(), headers=headers)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Malicious input detected."
 
 def test_update_config_valid_yaml():
     allowlist_yaml = "admins:\n  - admin@example.com"
@@ -171,3 +197,15 @@ def test_update_config_invalid_yaml():
             "Configuration must contain a valid 'model_list'"
             in response.json()["detail"]
         )
+
+        # Test TypeError (non-dict YAML)
+        payload_type = {"config_yaml": "- list_item"}
+        response_type = client.post("/api/config", json=payload_type, headers=headers)
+        assert response_type.status_code == 400
+        assert "YAML must be a dictionary" in response_type.json()["detail"]
+
+        # Test YAMLError (invalid syntax)
+        payload_yaml_err = {"config_yaml": "foo: [unclosed list"}
+        response_err = client.post("/api/config", json=payload_yaml_err, headers=headers)
+        assert response_err.status_code == 400
+        assert "Invalid YAML" in response_err.json()["detail"]
