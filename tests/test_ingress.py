@@ -2,13 +2,7 @@ import subprocess
 import yaml  # type: ignore
 import pytest
 
-
 def render_chart(values=None):
-    subprocess.run(
-        ["helm", "dependency", "update", "charts/agent-platform"],
-        capture_output=True,
-        check=True,
-    )
     cmd = ["helm", "template", "test-release", "charts/agent-platform"]
     if values:
         for k, v in values.items():
@@ -57,8 +51,8 @@ def test_tailscale_deployment(manifests):
 
     init_containers = spec.get("initContainers", [])
     assert (
-        len(init_containers) >= 2
-    ), "Should have tailscale and configurator init containers"
+        len(init_containers) >= 1
+    ), "Should have tailscale init container"
 
     tailscale = next(c for c in init_containers if c["name"] == "tailscale")
     assert (
@@ -78,19 +72,20 @@ def test_tailscale_deployment(manifests):
     assert ts_sc.get("runAsNonRoot") is True
     assert "ALL" in ts_sc.get("capabilities", {}).get("drop", [])
 
+    containers = spec.get("containers", [])
     configurator = next(
-        c for c in init_containers if c["name"] == "tailscale-serve-configurator"
+        c for c in containers if c["name"] == "tailscale-serve-configurator"
     )
     args = configurator.get("args", [""])[0]
+    assert "while true; do" in args
     assert "tailscale serve" in args
-    assert "tail -f /dev/null" not in args, "Configurator should not block indefinitely"
     sc = configurator.get("securityContext", {})
     assert sc.get("runAsNonRoot") is True
     assert sc.get("readOnlyRootFilesystem") is True
     assert sc.get("allowPrivilegeEscalation") is False
     assert "ALL" in sc.get("capabilities", {}).get("drop", [])
 
-    caddy = next(c for c in spec.get("containers", []) if c["name"] == "caddy")
+    caddy = next(c for c in containers if c["name"] == "caddy")
     caddy_sc = caddy.get("securityContext", {})
     assert caddy_sc.get("runAsNonRoot") is True
     assert caddy_sc.get("readOnlyRootFilesystem") is True
@@ -148,7 +143,8 @@ def test_caddy_config(manifests):
     assert "max_size 10MB" in caddyfile
     assert "handle /v1/*" in caddyfile
     assert "reverse_proxy unified-api:8000" in caddyfile
-    assert "handle /*" in caddyfile
+    assert "handle /telemetry*" in caddyfile
+    assert "handle /api/*" in caddyfile
     assert "reverse_proxy frontend:3000" in caddyfile
 
 
@@ -195,6 +191,22 @@ def test_network_policies(manifests):
     assert 3478 in egress_ports
     assert 8000 in egress_ports, "Must allow egress to unified API backend"
     assert 3000 in egress_ports, "Must allow egress to UI frontend"
+
+    # Find the generic UDP rule that now includes an ipBlock
+    udp_rule = next(
+        rule for rule in egress_np["spec"].get("egress", [])
+        if "to" in rule and any("ipBlock" in to_item for to_item in rule["to"])
+    )
+
+    ip_block = udp_rule["to"][0]["ipBlock"]
+    assert ip_block["cidr"] == "0.0.0.0/0"
+    assert "10.0.0.0/8" in ip_block["except"]
+    assert "172.16.0.0/12" in ip_block["except"]
+    assert "192.168.0.0/16" in ip_block["except"]
+
+    # Verify it applies to UDP
+    assert len(udp_rule["ports"]) == 1
+    assert udp_rule["ports"][0]["protocol"] == "UDP"
 
 
 def test_tailscale_disabled():

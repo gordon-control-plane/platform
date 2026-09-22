@@ -102,15 +102,13 @@ spec:
             - name: tmp-volume
               mountPath: /tmp
 
+      containers:
         - name: tailscale-serve-configurator
           image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
           command: ["/bin/sh", "-c"]
           args:
             - |
-              set -e
-              echo "Configuring tailscale serve..."
-              tailscale serve --bg --set-path / http://127.0.0.1:8080
-              echo "Serve configured."
+              while true; do tailscale status >/dev/null 2>&1 && tailscale serve --bg --set-path / http://127.0.0.1:8080; sleep 3600; done
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -125,8 +123,6 @@ spec:
               mountPath: /var/run/tailscale
             - name: tmp-volume
               mountPath: /tmp
-
-      containers:
         - name: caddy
           image: "{{ .Values.tailscaleIngress.caddyImage.repository }}:{{ .Values.tailscaleIngress.caddyImage.tag }}"
           imagePullPolicy: IfNotPresent
