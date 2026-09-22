@@ -2,6 +2,7 @@ import subprocess
 import yaml  # type: ignore
 import pytest
 
+
 def render_chart(values=None):
     cmd = ["helm", "template", "test-release", "charts/agent-platform"]
     if values:
@@ -50,9 +51,7 @@ def test_tailscale_deployment(manifests):
     )
 
     init_containers = spec.get("initContainers", [])
-    assert (
-        len(init_containers) >= 1
-    ), "Should have tailscale init container"
+    assert len(init_containers) >= 1, "Should have tailscale init container"
 
     tailscale = next(c for c in init_containers if c["name"] == "tailscale")
     assert (
@@ -194,7 +193,8 @@ def test_network_policies(manifests):
 
     # Find the generic UDP rule that now includes an ipBlock
     udp_rule = next(
-        rule for rule in egress_np["spec"].get("egress", [])
+        rule
+        for rule in egress_np["spec"].get("egress", [])
         if "to" in rule and any("ipBlock" in to_item for to_item in rule["to"])
     )
 
