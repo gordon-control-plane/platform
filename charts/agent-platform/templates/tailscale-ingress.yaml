@@ -79,6 +79,13 @@ spec:
               value: {{ .Values.tailscaleIngress.hostname }}
             - name: TS_EXTRA_ARGS
               value: "--ssh"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -108,7 +115,20 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              while true; do tailscale status >/dev/null 2>&1 && tailscale serve --bg --set-path / http://127.0.0.1:8080; sleep 3600; done
+              set -e
+              echo "Waiting for Tailscale..."
+              until tailscale status; do sleep 1; done
+              echo "Configuring tailscale serve..."
+              tailscale serve --bg --set-path / http://127.0.0.1:8080
+              echo "Serve configured. Idling."
+              sleep infinity
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -140,6 +160,13 @@ spec:
               subPath: Caddyfile
             - name: tmp-volume
               mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000

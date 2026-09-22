@@ -2,9 +2,11 @@ import subprocess
 import yaml  # type: ignore
 import pytest
 
+RELEASE_NAME = "test-release-agent-platform"
 
-def render_chart(values=None):
-    cmd = ["helm", "template", "test-release", "charts/agent-platform"]
+
+def render_chart(chart_dir, values=None):
+    cmd = ["helm", "template", "test-release", chart_dir]
     if values:
         for k, v in values.items():
             if isinstance(v, bool):
@@ -22,8 +24,8 @@ def render_chart(values=None):
 
 
 @pytest.fixture(scope="module")
-def manifests():
-    return render_chart()
+def manifests(chart_dir):
+    return render_chart(chart_dir)
 
 
 def find_manifest(manifests, kind, name):
@@ -36,10 +38,18 @@ def find_manifest(manifests, kind, name):
         None,
     )
 
+def get_egress_ports(np_manifest):
+    ports = []
+    for rule in np_manifest["spec"].get("egress", []):
+        for port_info in rule.get("ports", []):
+            if "port" in port_info:
+                ports.append(port_info["port"])
+    return ports
+
 
 def test_tailscale_deployment(manifests):
     deployment = find_manifest(
-        manifests, "Deployment", "test-release-agent-platform-tailscale-ingress"
+        manifests, "Deployment", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert deployment is not None, "Tailscale deployment should be rendered"
 
@@ -47,7 +57,7 @@ def test_tailscale_deployment(manifests):
 
     assert (
         spec.get("serviceAccountName")
-        == "test-release-agent-platform-tailscale-ingress"
+        == f"{RELEASE_NAME}-tailscale-ingress"
     )
 
     init_containers = spec.get("initContainers", [])
@@ -65,7 +75,7 @@ def test_tailscale_deployment(manifests):
     assert "TS_KUBE_SECRET" in env_vars
     assert (
         env_vars["TS_KUBE_SECRET"]
-        == "test-release-agent-platform-tailscale-state"  # pragma: allowlist secret
+        == f"{RELEASE_NAME}-tailscale-state"  # pragma: allowlist secret
     )
     ts_sc = tailscale.get("securityContext", {})
     assert ts_sc.get("runAsNonRoot") is True
@@ -76,8 +86,9 @@ def test_tailscale_deployment(manifests):
         c for c in containers if c["name"] == "tailscale-serve-configurator"
     )
     args = configurator.get("args", [""])[0]
-    assert "while true; do" in args
-    assert "tailscale serve" in args
+    assert "until tailscale status; do sleep 1; done" in args
+    assert "tailscale status" in args, "Must verify tailscale readiness"
+    assert "tailscale serve --bg --set-path / http://127.0.0.1:8080" in args, "Must configure correct proxy destination"
     sc = configurator.get("securityContext", {})
     assert sc.get("runAsNonRoot") is True
     assert sc.get("readOnlyRootFilesystem") is True
@@ -97,39 +108,46 @@ def test_tailscale_deployment(manifests):
 
 def test_tailscale_rbac(manifests):
     sa = find_manifest(
-        manifests, "ServiceAccount", "test-release-agent-platform-tailscale-ingress"
+        manifests, "ServiceAccount", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert sa is not None, "ServiceAccount should be created"
 
     role = find_manifest(
-        manifests, "Role", "test-release-agent-platform-tailscale-ingress"
+        manifests, "Role", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert role is not None, "Role should be created"
 
     # Check permissions strictly limit access to the state secret
     has_get_update_patch = False
+    has_create = False
     for rule in role.get("rules", []):
-        if "secrets" in rule.get("resources", []) and "get" in rule.get("verbs", []):
-            assert "test-release-agent-platform-tailscale-state" in rule.get(
-                "resourceNames", []
-            ), "Must restrict access to specific secret name"
-            has_get_update_patch = True
+        if "secrets" in rule.get("resources", []):
+            if not rule.get("resourceNames"):
+                assert set(rule.get("verbs", [])) == {"create"}, "Must only allow create verb namespace-wide for secrets"
+                has_create = True
+            elif "get" in rule.get("verbs", []):
+                assert f"{RELEASE_NAME}-tailscale-state" in rule.get(
+                    "resourceNames", []
+                ), "Must restrict access to specific secret name"
+                assert set(rule.get("verbs", [])) == {"get", "update", "patch"}, "Must restrict to get, update, patch verbs"
+                has_get_update_patch = True
     assert has_get_update_patch, "Must have rules to get/update/patch the state secret"
+    assert has_create, "Must have rules to create the state secret"
 
     rb = find_manifest(
-        manifests, "RoleBinding", "test-release-agent-platform-tailscale-ingress"
+        manifests, "RoleBinding", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert rb is not None, "RoleBinding should be created"
-    assert rb["roleRef"]["name"] == "test-release-agent-platform-tailscale-ingress"
+    assert rb["roleRef"]["name"] == f"{RELEASE_NAME}-tailscale-ingress"
     assert any(
-        s["name"] == "test-release-agent-platform-tailscale-ingress"
+        s["name"] == f"{RELEASE_NAME}-tailscale-ingress"
         for s in rb["subjects"]
     )
 
 
 def test_caddy_config(manifests):
     cm = find_manifest(
-        manifests, "ConfigMap", "test-release-agent-platform-caddy-config"
+        manifests, "ConfigMap", f"{RELEASE_NAME}-caddy-config"
     )
     assert cm is not None, "Caddy ConfigMap should be created"
 
@@ -147,16 +165,47 @@ def test_caddy_config(manifests):
     assert "reverse_proxy frontend:3000" in caddyfile
 
 
+def test_caddyfile_structural_validation(manifests):
+    import tempfile
+    cm = find_manifest(
+        manifests, "ConfigMap", f"{RELEASE_NAME}-caddy-config"
+    )
+    assert cm is not None, "Caddy ConfigMap should be created"
+    caddyfile = cm["data"]["Caddyfile"]
+    
+    # Skip if docker is not available
+    try:
+        subprocess.run(["docker", "info"], check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pytest.skip("Docker is not available to run caddy validate")
+        
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.Caddyfile', delete=False) as f:
+        f.write(caddyfile)
+        tmp_path = f.name
+        
+    try:
+        # caddy validate
+        result = subprocess.run(
+            ["docker", "run", "--rm", "-i", "-v", f"{tmp_path}:/etc/caddy/Caddyfile", "caddy:2.7.6", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"],
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0, f"Caddyfile validation failed:\n{result.stderr}\n{caddyfile}"
+    finally:
+        import os
+        os.unlink(tmp_path)
+
+
 def test_network_policies(manifests):
     ingress_np = find_manifest(
-        manifests, "NetworkPolicy", "test-release-agent-platform-unified-api-ingress"
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-unified-api-ingress"
     )
     assert (
         ingress_np is not None
     ), "Unified API Ingress NP should be created when Tailscale is enabled"
 
     frontend_ingress = find_manifest(
-        manifests, "NetworkPolicy", "test-release-agent-platform-frontend-ingress"
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-frontend-ingress"
     )
     assert frontend_ingress is not None, "Frontend Ingress NP should be created"
     assert (
@@ -167,16 +216,12 @@ def test_network_policies(manifests):
     )
 
     egress_np = find_manifest(
-        manifests, "NetworkPolicy", "test-release-agent-platform-tailscale-egress"
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
     )
     assert egress_np is not None, "Tailscale Egress NP should be created"
 
-    egress_ports = []
+    egress_ports = get_egress_ports(egress_np)
     for rule in egress_np["spec"].get("egress", []):
-        for port_info in rule.get("ports", []):
-            if "port" in port_info:
-                egress_ports.append(port_info["port"])
-
         if "to" in rule:
             for to_rule in rule["to"]:
                 labels = to_rule.get("podSelector", {}).get("matchLabels", {})
@@ -186,8 +231,8 @@ def test_network_policies(manifests):
                 if labels.get("app") == "frontend":
                     assert any(p["port"] == 3000 for p in rule.get("ports", []))
 
-    assert 443 in egress_ports
     assert 3478 in egress_ports
+    assert 53 in egress_ports, "Must allow DNS egress"
     assert 8000 in egress_ports, "Must allow egress to unified API backend"
     assert 3000 in egress_ports, "Must allow egress to UI frontend"
 
@@ -209,8 +254,9 @@ def test_network_policies(manifests):
     assert udp_rule["ports"][0]["protocol"] == "UDP"
 
 
-def test_tailscale_disabled():
+def test_tailscale_disabled(chart_dir):
     manifests = render_chart(
+        chart_dir,
         {
             "tailscaleIngress.enabled": False,
             "frontend.enabled": True,
@@ -219,41 +265,93 @@ def test_tailscale_disabled():
     )
 
     deployment = find_manifest(
-        manifests, "Deployment", "test-release-agent-platform-tailscale-ingress"
+        manifests, "Deployment", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert deployment is None, "Tailscale deployment should not be rendered"
 
     sa = find_manifest(
-        manifests, "ServiceAccount", "test-release-agent-platform-tailscale-ingress"
+        manifests, "ServiceAccount", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert sa is None, "Tailscale ServiceAccount should not be rendered"
 
     role = find_manifest(
-        manifests, "Role", "test-release-agent-platform-tailscale-ingress"
+        manifests, "Role", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert role is None, "Tailscale Role should not be rendered"
 
     rb = find_manifest(
-        manifests, "RoleBinding", "test-release-agent-platform-tailscale-ingress"
+        manifests, "RoleBinding", f"{RELEASE_NAME}-tailscale-ingress"
     )
     assert rb is None, "Tailscale RoleBinding should not be rendered"
 
     cm = find_manifest(
-        manifests, "ConfigMap", "test-release-agent-platform-caddy-config"
+        manifests, "ConfigMap", f"{RELEASE_NAME}-caddy-config"
     )
     assert cm is None, "Caddy ConfigMap should not be rendered"
 
     frontend_ingress = find_manifest(
-        manifests, "NetworkPolicy", "test-release-agent-platform-frontend-ingress"
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-frontend-ingress"
     )
     assert frontend_ingress is None, "Frontend Ingress NP should not be rendered"
 
     unified_ingress = find_manifest(
-        manifests, "NetworkPolicy", "test-release-agent-platform-unified-api-ingress"
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-unified-api-ingress"
     )
     assert unified_ingress is None, "Unified API Ingress NP should not be rendered"
 
     egress_np = find_manifest(
-        manifests, "NetworkPolicy", "test-release-agent-platform-tailscale-egress"
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
     )
     assert egress_np is None, "Tailscale Egress NP should not be rendered"
+
+
+def test_tailscale_frontend_disabled(chart_dir):
+    manifests = render_chart(
+        chart_dir,
+        {
+            "tailscaleIngress.enabled": True,
+            "frontend.enabled": False,
+            "unifiedApi.enabled": True,
+        }
+    )
+
+    frontend_ingress = find_manifest(
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-frontend-ingress"
+    )
+    assert frontend_ingress is None, "Frontend Ingress NP should not be rendered"
+
+    egress_np = find_manifest(
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
+    )
+    assert egress_np is not None, "Tailscale Egress NP should be created"
+
+    egress_ports = get_egress_ports(egress_np)
+
+    assert 3000 not in egress_ports, "Must not allow egress to UI frontend if disabled"
+    assert 8000 in egress_ports, "Must allow egress to unified API"
+
+
+def test_tailscale_unifiedapi_disabled(chart_dir):
+    manifests = render_chart(
+        chart_dir,
+        {
+            "tailscaleIngress.enabled": True,
+            "frontend.enabled": True,
+            "unifiedApi.enabled": False,
+        }
+    )
+
+    unified_ingress = find_manifest(
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-unified-api-ingress"
+    )
+    assert unified_ingress is None, "Unified API Ingress NP should not be rendered"
+
+    egress_np = find_manifest(
+        manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
+    )
+    assert egress_np is not None, "Tailscale Egress NP should be created"
+
+    egress_ports = get_egress_ports(egress_np)
+
+    assert 8000 not in egress_ports, "Must not allow egress to unified API if disabled"
+    assert 3000 in egress_ports, "Must allow egress to UI frontend"
