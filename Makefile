@@ -12,7 +12,7 @@ KUBE_API_URL ?= $(if $(findstring 127.0.0.1,$(CURRENT_API_URL)),$(CURRENT_API_UR
 
 cluster-up:
 	@echo "Creating local kind cluster..."
-	@kind create cluster --name gordon-dev || true
+	@kind create cluster --name gordon-dev --config scripts/kind-config.yaml || true
 
 cluster-down:
 	@echo "Deleting local kind cluster..."
@@ -41,6 +41,8 @@ deploy: setup check-cluster
 	@helm repo add postgres-operator-charts https://opensource.zalando.com/postgres-operator/charts/postgres-operator || true
 	@helm upgrade --install postgres-operator postgres-operator-charts/postgres-operator \
 		--namespace $(NAMESPACE) --create-namespace
+	@echo "Waiting for postgresql CRD to be registered..."
+	@kubectl wait --for condition=established --timeout=60s crd/postgresqls.acid.zalan.do || true
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
 	@. .env && kubectl create secret docker-registry ghcr-secret \
 		--namespace $(NAMESPACE) \
@@ -53,13 +55,19 @@ deploy: setup check-cluster
 		--set global.image.tag="$(GIT_SHA)" \
 		--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
 		--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
+		--set temporal.server.frontend.service.type=NodePort \
+		--set postgresql.nodePort.enabled=true \
 		--wait --timeout 600s
 
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)
 
 test:
-	uv run pytest tests/
+	uv run pytest tests/unit/
+
+test-integration: check-cluster
+	@echo "Running Integration tests..."
+	uv run pytest tests/integration/
 
 test-e2e: check-cluster
 	@echo "Running E2E tests against API: $(KUBE_API_URL)..."

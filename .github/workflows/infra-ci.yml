@@ -68,9 +68,14 @@ jobs:
         uses: helm/kind-action@v1.8.0
         with:
           cluster_name: e2e-cluster
+          config: scripts/kind-config.yaml
 
       - name: Build Helm Dependencies
         run: helm dependency update charts/agent-platform
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
 
       - name: Deploy to Kind
         run: |
@@ -78,8 +83,21 @@ jobs:
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
           make deploy KUBE_API_URL="$KUBE_API_URL"
-
-      - name: Run Smoke Tests
+      - name: Map NodePorts to localhost
+        run: echo '127.0.0.1 agent-platform-db agent-platform-db-nodeport agent-platform-temporal-frontend' | sudo tee -a /etc/hosts
+      - name: Run Integration Tests
+        run: |
+          # Verify tests exist and have no syntax errors before applying filters
+          uv run pytest tests/integration/ --collect-only -q > .pytest-collect.log || collect_code=$?
+          if [ "${collect_code:-0}" -ne 0 ]; then
+            cat .pytest-collect.log
+            echo "::error::Test collection failed (code $collect_code). Tests missing or syntax errors."
+            exit "$collect_code"
+          fi
+          # Run tests excluding quarantined ones
+          uv run pytest tests/integration/ -m "not quarantine" || exit_code=$?
+          if [ "${exit_code:-0}" -ne 0 ] && [ "${exit_code:-0}" -ne 5 ]; then exit "$exit_code"; fi
+      - name: Run E2E Tests
         run: |
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
