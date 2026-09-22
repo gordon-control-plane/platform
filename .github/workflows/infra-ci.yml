@@ -77,10 +77,11 @@ jobs:
           # Set default kind API URL
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
+          export GH_PAT="dummy"
           make deploy KUBE_API_URL="$KUBE_API_URL"
 
       - name: Run Smoke Tests
         run: |
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
-          make test-e2e KUBE_API_URL="$KUBE_API_URL"
+          uv run pytest tests/e2e/test_smoke.py

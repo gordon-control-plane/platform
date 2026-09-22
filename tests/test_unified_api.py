@@ -1,6 +1,8 @@
 import os
+from unittest.mock import mock_open, patch
+
 from fastapi.testclient import TestClient
-from unittest.mock import patch, mock_open
+
 from gateway.unified_api import app
 
 # Ensure ENV is not 'dev' so we can test headers

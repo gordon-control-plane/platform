@@ -15,15 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         component:
-          - { name: "mcp-server", path: "." }
-          - { name: "interactive-agent", path: "." }
-          - { name: "agent-platform-worker", path: "." }
-          - { name: "sandbox", path: "." }
-          - { name: "relay", path: "." }
           - { name: "unified-api", path: "build/Dockerfile.unified-api" }
           - { name: "frontend", path: "build/Dockerfile.frontend" }
+          - { name: "agent-platform-worker", path: "build/Dockerfile.worker" }
 
     uses: ./.github/workflows/_build-scan-push.yml
     with:
-      dockerfile: ${{ matrix.component.path == '.' && format('{0}/Dockerfile', matrix.component.name) || matrix.component.path }}
+      dockerfile: ${{ matrix.component.path }}
       image: ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}

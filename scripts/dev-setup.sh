@@ -15,18 +15,30 @@ done
 
 ENV_FILE=".env"
 
+GH_PAT="${GH_PAT:-}"
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --gh-pat) GH_PAT="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
 # Prompt for secrets if missing
 if [ ! -f "$ENV_FILE" ]; then
     echo "Creating $ENV_FILE..."
 
-    read -p "Enter GitHub PAT (with read:packages scope) for GHCR: " gh_pat
-
+     if [ -z "$GH_PAT" ]; then
+         echo "Error: GH_PAT is required for initial setup. Provide via --gh-pat or GH_PAT environment variable."
+         exit 1
+     fi
     # Generate secure random passwords
     lf_secret=$(openssl rand -base64 32)
     lf_salt=$(openssl rand -hex 16)
 
     cat <<EOF > "$ENV_FILE"
-GH_PAT="${gh_pat}"
+GH_PAT="${GH_PAT}"
 LANGFUSE_NEXTAUTH_SECRET="${lf_secret}"
 LANGFUSE_SALT="${lf_salt}"
 EOF

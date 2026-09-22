@@ -82,3 +82,18 @@ litellm:
   enabled: true
   service:
     port: 4000
+
+postgresql:
+  enabled: false
+
+minio:
+  enabled: true
+  auth:
+    rootUser: admin
+    rootPassword: password # pragma: allowlist secret
+
+victoriametrics:
+  enabled: true
+
+git-pkgs-proxy:
+  enabled: true
