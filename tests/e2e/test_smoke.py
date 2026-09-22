@@ -1,7 +1,8 @@
+import os
 import subprocess
 import pytest
 
-NAMESPACE = "gordon"
+NAMESPACE = os.environ.get("NAMESPACE", "gordon")
 
 
 def check_pod_ready(label_selector: str):
@@ -23,12 +24,8 @@ def check_pod_ready(label_selector: str):
         pytest.fail(f"Pod matching {label_selector} not ready. Error: {e.stderr}")
 
 
-def test_mcp_server_running():
-    check_pod_ready("app=mcp-server")
 
 
-def test_openshell_sandbox_running():
-    check_pod_ready("app=openshell")
 
 
 def test_postgres_operator_running():

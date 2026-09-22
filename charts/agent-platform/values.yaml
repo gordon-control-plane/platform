@@ -62,7 +62,7 @@ unifiedApi:
     repository: localhost/agent-unified-api
     tag: local
     pullPolicy: IfNotPresent
-  githubRepo: "gordon-control-plane/platform" # MUST CHANGE THIS!
+  githubRepo: "gordon-control-plane/platform"
   service:
     port: 8000
 
