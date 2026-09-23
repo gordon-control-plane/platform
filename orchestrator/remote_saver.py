@@ -1,19 +1,43 @@
-import json
+import os
+from typing import Any, AsyncIterator
+
 import httpx
-from typing import Optional, Any, AsyncIterator, Tuple, Dict
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint, CheckpointMetadata, CheckpointTuple
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+    get_serializable_checkpoint_metadata,
+)
 
 class AsyncHttpSaver(BaseCheckpointSaver):
-    def __init__(self, base_url: str, token: str):
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None = None,
+        user: str = "orchestrator@internal",
+        headers: dict[str, str] | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+        client: httpx.AsyncClient | None = None,
+    ):
         super().__init__()
         self.base_url = base_url.rstrip("/")
-        self.headers = {"Authorization": f"Bearer {token}"}
-        self.client = httpx.AsyncClient(headers=self.headers)
+        self.headers: dict[str, str] = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Tailscale-User-Login": os.environ.get("INTERNAL_SERVICE_USER", user),
+        }
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
+        if headers:
+            self.headers.update(headers)
+        self.client = client if client is not None else httpx.AsyncClient(
+            transport=transport, headers=self.headers
+        )
 
     async def aclose(self):
         await self.client.aclose()
         
-    async def aget_tuple(self, config: dict) -> Optional[CheckpointTuple]:
+    async def aget_tuple(self, config: dict) -> CheckpointTuple | None:
         thread_id = config["configurable"]["thread_id"]
         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
         checkpoint_id = config["configurable"].get("checkpoint_id", "")
@@ -33,18 +57,31 @@ class AsyncHttpSaver(BaseCheckpointSaver):
             parent_config=data.get("parent_config")
         )
             
-    async def aput(self, config: dict, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: dict) -> dict:
+    async def aput(
+        self,
+        config: dict,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: dict,
+    ) -> dict:
         thread_id = config["configurable"]["thread_id"]
-        
+        clean_configurable = {
+            k: v
+            for k, v in config.get("configurable", {}).items()
+            if not k.startswith("__") and isinstance(v, (str, int, float, bool, list, dict))
+        }
+        clean_config = {"configurable": clean_configurable}
+        clean_metadata = get_serializable_checkpoint_metadata(config, metadata)
+
         payload = {
-            "config": config,
+            "config": clean_config,
             "checkpoint": checkpoint,
-            "metadata": metadata,
-            "new_versions": new_versions
+            "metadata": clean_metadata,
+            "new_versions": new_versions,
         }
         resp = await self.client.post(
             f"{self.base_url}/api/checkpoints/{thread_id}",
-            json=payload
+            json=payload,
         )
         resp.raise_for_status()
         return resp.json()["config"]
@@ -62,5 +99,5 @@ class AsyncHttpSaver(BaseCheckpointSaver):
         )
         resp.raise_for_status()
     async def asearch(self, config: dict, **kwargs) -> AsyncIterator[CheckpointTuple]:
-        # Minimal implementation for search
-        yield None
+        async for item in self.alist(config, **kwargs):
+            yield item

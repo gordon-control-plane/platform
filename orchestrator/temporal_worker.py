@@ -29,7 +29,10 @@ pm_graph: Any = None
 async def init_worker_state():
     global checkpointer, ci_graph, pm_graph
     unified_api_url = os.environ.get("UNIFIED_API_URL", "http://unified-api:8000")
-    checkpointer = AsyncHttpSaver(unified_api_url, token="internal-token")
+    token = os.environ.get("INTERNAL_TOKEN") or os.environ.get("CHECKPOINT_AUTH_TOKEN")
+    if not token and os.environ.get("ENV") == "production":
+        raise RuntimeError("INTERNAL_TOKEN environment variable is required in production")
+    checkpointer = AsyncHttpSaver(unified_api_url, token=token)
 
     ci_graph = build_ci_pipeline().compile(checkpointer=checkpointer)
     pm_graph = build_pm_standup().compile(checkpointer=checkpointer)

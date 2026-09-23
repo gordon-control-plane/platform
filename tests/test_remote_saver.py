@@ -65,3 +65,58 @@ async def test_aput_writes(saver):
     with patch("httpx.AsyncClient.post", return_value=mock_resp):
         await saver.aput_writes(config, writes, task_id)
         # Assuming no exception means success
+
+@pytest.mark.asyncio
+async def test_aget_tuple_http_error(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    mock_resp = httpx.Response(500, request=httpx.Request("GET", "http://test-unified-api:8000/api/checkpoints/thread-1"))
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        with pytest.raises(httpx.HTTPStatusError):
+            await saver.aget_tuple(config)
+
+@pytest.mark.asyncio
+async def test_aget_tuple_network_error(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    with patch("httpx.AsyncClient.get", side_effect=httpx.ConnectError("Connection refused")):
+        with pytest.raises(httpx.RequestError):
+            await saver.aget_tuple(config)
+
+@pytest.mark.asyncio
+async def test_aput_http_error(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    checkpoint = {"v": 1, "ts": "2023-01-01T00:00:00Z", "id": "cp1", "channel_values": {}}
+    metadata = {"source": "test", "step": 1, "writes": {}, "parents": {}}
+    new_versions = {}
+    mock_resp = httpx.Response(500, request=httpx.Request("POST", "http://test-unified-api:8000/api/checkpoints/thread-1"))
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        with pytest.raises(httpx.HTTPStatusError):
+            await saver.aput(config, checkpoint, metadata, new_versions)
+
+@pytest.mark.asyncio
+async def test_aput_network_error(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    checkpoint = {"v": 1, "ts": "2023-01-01T00:00:00Z", "id": "cp1", "channel_values": {}}
+    metadata = {"source": "test", "step": 1, "writes": {}, "parents": {}}
+    new_versions = {}
+    with patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused")):
+        with pytest.raises(httpx.RequestError):
+            await saver.aput(config, checkpoint, metadata, new_versions)
+
+@pytest.mark.asyncio
+async def test_aput_writes_http_error(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    writes = [("task1", "data")]
+    task_id = "task-1"
+    mock_resp = httpx.Response(500, request=httpx.Request("POST", "http://test-unified-api:8000/api/checkpoints/thread-1/writes"))
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        with pytest.raises(httpx.HTTPStatusError):
+            await saver.aput_writes(config, writes, task_id)
+
+@pytest.mark.asyncio
+async def test_aput_writes_network_error(saver):
+    config = {"configurable": {"thread_id": "thread-1"}}
+    writes = [("task1", "data")]
+    task_id = "task-1"
+    with patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused")):
+        with pytest.raises(httpx.RequestError):
+            await saver.aput_writes(config, writes, task_id)

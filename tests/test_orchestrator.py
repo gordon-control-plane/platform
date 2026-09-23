@@ -1,10 +1,8 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from langgraph.checkpoint.memory import MemorySaver
-from temporalio.testing import WorkflowEnvironment
-from temporalio.exceptions import ActivityError
 from temporalio.client import WorkflowFailureError
+from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 import orchestrator.temporal_worker as worker_module
@@ -19,7 +17,6 @@ from orchestrator.temporal_worker import (
 
 @pytest.mark.asyncio
 async def test_agent_workflow():
-    from unittest.mock import AsyncMock, MagicMock
     mock_get = MagicMock()
     mock_get.status_code = 404
     mock_get.raise_for_status = MagicMock()
@@ -29,7 +26,6 @@ async def test_agent_workflow():
     mock_post.raise_for_status = MagicMock()
     mock_post.json = MagicMock(return_value={"config": {}})
     
-    # Better way: Just patch the methods to return a coroutine that returns the MagicMock
     async def mock_get_coro(*args, **kwargs):
         return mock_get
         
@@ -40,7 +36,6 @@ async def test_agent_workflow():
          patch("httpx.AsyncClient.post", side_effect=mock_post_coro):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             await worker_module.init_worker_state()
-            # Start worker
             try:
                 # Start worker
                 worker = Worker(

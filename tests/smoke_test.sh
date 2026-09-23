@@ -10,12 +10,28 @@ fi
 
 echo "Verifying agent-platform-worker egress network policy..."
 WORKER_POD=$(kubectl get pod -l app=workers -n "$NAMESPACE" -o jsonpath="{.items[0].metadata.name}")
+if [ -z "$WORKER_POD" ]; then
+    echo "Smoke test failed: No worker pod found matching app=workers in namespace $NAMESPACE"
+    exit 1
+fi
 
-if kubectl exec "$WORKER_POD" -n "$NAMESPACE" -- curl -s -m 2 https://google.com >/dev/null 2>&1; then
+EGRESS_CHECK=$(kubectl exec "$WORKER_POD" -n "$NAMESPACE" -- python3 -c '
+import urllib.request
+try:
+    urllib.request.urlopen("https://google.com", timeout=2)
+    print("CONNECTED")
+except Exception:
+    print("BLOCKED")
+' 2>/dev/null || true)
+
+if [ "$EGRESS_CHECK" = "CONNECTED" ]; then
     echo "Smoke test failed: NetworkPolicy is NOT dropping external egress from worker pod!"
     exit 1
+elif [ "$EGRESS_CHECK" = "BLOCKED" ]; then
+    echo "Egress blackhole verified (connection timed out as expected)."
 else
-    echo "Egress blackhole verified (curl timed out as expected)."
+    echo "Smoke test failed: could not execute egress check in worker pod (output: $EGRESS_CHECK)"
+    exit 1
 fi
 
 

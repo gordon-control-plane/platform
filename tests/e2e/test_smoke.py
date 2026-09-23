@@ -32,6 +32,7 @@ def check_pod_ready(label_selector: str):
         "app.kubernetes.io/name=temporal",
         "app=unified-api",
         "app=litellm",
+        "app=workers",
     ],
 )
 def test_pod_running(label_selector: str):

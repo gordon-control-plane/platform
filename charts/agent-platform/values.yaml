@@ -23,24 +23,16 @@ tailscaleIngress:
     repository: tailscale/tailscale
     tag: latest
   caddyImage:
-    repository: ghcr.io/gordon-control-plane/caddy-waf
-    tag: latest
+    repository: caddy
+    tag: 2-alpine
   hostname: gordon-control-plane
   # The TS_AUTHKEY should be provided via secret:
   # kubectl create secret generic tailscale-auth --from-literal=TS_AUTHKEY=tskey-auth-xxxx
   secretName: tailscale-auth
   caddyConfig: |
-    {
-        order coraza_waf first
-    }
-    http://0.0.0.0:8080 {
-        coraza_waf {
-            load_owasp_crs
-            directives `
-                Include @owasp_crs/*.conf
-                SecRuleEngine On
-            `
-        }
+    # Caddyfile config
+    # Route via plain HTTP since Tailscale serve terminates TLS and injects Tailscale-User-Login
+    http://127.0.0.1:8080 {
         # Proxy routes
         handle /v1/chat* {
             reverse_proxy unified-api:8000

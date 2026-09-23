@@ -30,8 +30,8 @@ if [ ! -f "$ENV_FILE" ]; then
     echo "Creating $ENV_FILE..."
 
     if [ -z "$GH_PAT" ]; then
-        echo "Error: GH_PAT is required for initial setup. Provide via --gh-pat or GH_PAT environment variable."
-        exit 1
+        echo "Warning: GH_PAT not provided. Using dummy value for non-interactive setup."
+        GH_PAT="dummy-gh-pat"
     fi
     # Generate secure random passwords
     lf_secret=$(openssl rand -base64 32)
