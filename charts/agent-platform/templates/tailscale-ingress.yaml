@@ -81,8 +81,6 @@ spec:
               value: "/tmp"
             - name: TS_SOCKET
               value: "/var/run/tailscale/tailscaled.sock"
-            - name: TS_EXTRA_ARGS
-              value: "--ssh"
           resources:
             requests:
               cpu: 10m
