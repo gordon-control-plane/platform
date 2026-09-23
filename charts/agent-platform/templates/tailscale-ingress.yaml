@@ -79,6 +79,8 @@ spec:
               value: {{ .Values.tailscaleIngress.hostname | quote }}
             - name: TS_STATE_DIR
               value: "/tmp"
+            - name: TS_SOCKET
+              value: "/var/run/tailscale/tailscaled.sock"
             - name: TS_EXTRA_ARGS
               value: "--ssh"
           resources:
@@ -128,6 +130,9 @@ spec:
             limits:
               cpu: 50m
               memory: 64Mi
+          env:
+            - name: TS_SOCKET
+              value: "/var/run/tailscale/tailscaled.sock"
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000

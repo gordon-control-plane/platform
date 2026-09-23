@@ -48,6 +48,12 @@ deploy: setup check-cluster
 		--docker-username=gordon-control-plane \
 		--docker-password="$$GH_PAT" \
 		--dry-run=client -o yaml | kubectl apply -f -
+	@. .env && if [ -n "$$TAILSCALE_AUTH_KEY" ]; then \
+		kubectl create secret generic tailscale-auth \
+			--namespace $(NAMESPACE) \
+			--from-literal=TS_AUTHKEY="$$TAILSCALE_AUTH_KEY" \
+			--dry-run=client -o yaml | kubectl apply -f -; \
+	fi
 	@. .env && helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
 		--namespace $(NAMESPACE) \
 		--set global.image.tag="$(GIT_SHA)" \

@@ -27,12 +27,19 @@ if [ ! -f "$ENV_FILE" ]; then
 
     cat <<EOF > "$ENV_FILE"
 GH_PAT="${gh_pat}"
+TAILSCALE_AUTH_KEY=""
 LANGFUSE_NEXTAUTH_SECRET="${lf_secret}"
 LANGFUSE_SALT="${lf_salt}"
 EOF
     echo "Secrets securely generated and saved to $ENV_FILE"
 else
     echo "Found existing $ENV_FILE, skipping secret generation."
+fi
+
+# Append Tailscale key if missing from .env
+if ! grep -q "^TAILSCALE_AUTH_KEY=" "$ENV_FILE"; then
+    read -p "Enter Tailscale Auth Key (tskey-auth-... or tskey-client-..., leave blank to skip): " ts_key
+    echo "TAILSCALE_AUTH_KEY=\"${ts_key}\"" >> "$ENV_FILE"
 fi
 
 echo ""
