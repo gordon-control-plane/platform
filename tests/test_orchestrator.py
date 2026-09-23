@@ -14,26 +14,27 @@ from orchestrator.temporal_worker import (
 )
 
 
-
 @pytest.mark.asyncio
 async def test_agent_workflow():
     mock_get = MagicMock()
     mock_get.status_code = 404
     mock_get.raise_for_status = MagicMock()
-    
+
     mock_post = MagicMock()
     mock_post.status_code = 200
     mock_post.raise_for_status = MagicMock()
     mock_post.json = MagicMock(return_value={"config": {}})
-    
+
     async def mock_get_coro(*args, **kwargs):
         return mock_get
-        
+
     async def mock_post_coro(*args, **kwargs):
         return mock_post
-            
-    with patch("httpx.AsyncClient.get", side_effect=mock_get_coro), \
-         patch("httpx.AsyncClient.post", side_effect=mock_post_coro):
+
+    with (
+        patch("httpx.AsyncClient.get", side_effect=mock_get_coro),
+        patch("httpx.AsyncClient.post", side_effect=mock_post_coro),
+    ):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             await worker_module.init_worker_state()
             try:

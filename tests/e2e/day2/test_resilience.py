@@ -80,14 +80,14 @@ def test_security_admin_endpoint_no_bypass(client):
     }
 
     # Standard user without allowlist
-    import tempfile
     import os
+    import tempfile
     from unittest.mock import patch
-    
+
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as tf:
         tf.write("admins:\n  - real_admin@example.com")
         tf_name = tf.name
-        
+
     try:
         with patch("gateway.unified_api.get_allowlist_path", return_value=tf_name):
             response = client.get("/api/config", headers=headers_user)

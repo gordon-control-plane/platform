@@ -108,48 +108,60 @@ def test_chat_proxy():
         assert response.status_code == 200
         assert response.text == "data: test\\n\\n"
 
+
 def test_chat_proxy_payload_too_large():
     headers = {
         "X-Requested-With": "XMLHttpRequest",
         "Tailscale-User-Login": "dev@example.com",
-        "Content-Length": str((10 * 1024 * 1024) + 1)
+        "Content-Length": str((10 * 1024 * 1024) + 1),
     }
-    response = client.post("/v1/chat/completions", content=b"a" * int(headers["Content-Length"]), headers=headers)
+    response = client.post(
+        "/v1/chat/completions",
+        content=b"a" * int(headers["Content-Length"]),
+        headers=headers,
+    )
     assert response.status_code == 413
     assert response.json()["detail"] == "Payload too large"
+
 
 def test_chat_proxy_streaming_validator():
     headers = {
         "X-Requested-With": "XMLHttpRequest",
         "Tailscale-User-Login": "dev@example.com",
     }
-    
+
     # A malicious string split across multiple chunks
     def stream_malicious_payload():
         yield b'{"mess'
         yield b'ages": [{"role": "user", '
         yield b'"content": "sys'
         yield b'tem(foo)"}]}'
-        
+
     class MockResponse:
         status_code = 200
         headers = {}
+
         async def aiter_raw(self):
             yield b"data: test\n\n"
-            
+
     with patch("httpx.AsyncClient.send") as mock_send:
         mock_send.return_value = MockResponse()
+
         # But wait, if mock_send doesn't consume the stream, the HTTPException won't be raised!
         # Let's write a mock that consumes the stream.
         async def mock_send_coro(req, **kwargs):
             async for _ in req.stream:
                 pass
             return MockResponse()
+
         mock_send.side_effect = mock_send_coro
-        
-        response = client.post("/v1/chat/completions", content=stream_malicious_payload(), headers=headers)
+
+        response = client.post(
+            "/v1/chat/completions", content=stream_malicious_payload(), headers=headers
+        )
         assert response.status_code == 400
         assert response.json()["detail"] == "Malicious input detected."
+
 
 def test_update_config_valid_yaml():
     allowlist_yaml = "admins:\n  - admin@example.com"
@@ -216,6 +228,7 @@ def test_update_config_conflict():
     with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "mock"}):
             with patch("httpx.AsyncClient.get") as mock_get:
+
                 def mock_get_side_effect(url, **kwargs):
                     if "page=1" in url:
                         return MockResponse(
@@ -224,9 +237,7 @@ def test_update_config_conflict():
                     return MockResponse([], 200)
 
                 mock_get.side_effect = mock_get_side_effect
-                response = client.post(
-                    "/api/config", json=payload, headers=headers
-                )
+                response = client.post("/api/config", json=payload, headers=headers)
                 assert response.status_code == 409
                 assert "A configuration PR is already open" in response.json()["detail"]
 
@@ -251,15 +262,14 @@ def test_update_config_github_upstream_failure():
     with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "mock"}):
             with patch("httpx.AsyncClient.get") as mock_get:
+
                 def mock_get_side_effect(url, **kwargs):
                     if "pulls?state=open" in url:
                         return MockResponse([], 200)
                     return MockResponse({}, 500)
 
                 mock_get.side_effect = mock_get_side_effect
-                response = client.post(
-                    "/api/config", json=payload, headers=headers
-                )
+                response = client.post("/api/config", json=payload, headers=headers)
                 assert response.status_code == 500
                 assert "Failed to fetch repo info" in response.json()["detail"]
 
@@ -283,6 +293,7 @@ def test_update_config_pr_creation_failure():
     with patch("builtins.open", mock_open(read_data=allowlist_yaml)):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "mock"}):
             with patch("httpx.AsyncClient.get") as mock_get:
+
                 def mock_get_side_effect(url, **kwargs):
                     if "pulls?state=open" in url:
                         return MockResponse([], 200)
@@ -301,7 +312,9 @@ def test_update_config_pr_creation_failure():
                             "/api/config", json=payload, headers=headers
                         )
                         assert response.status_code == 500
-                        assert "Failed to create Pull Request" in response.json()["detail"]
+                        assert (
+                            "Failed to create Pull Request" in response.json()["detail"]
+                        )
 
 
 def test_update_config_invalid_yaml():
@@ -329,6 +342,8 @@ def test_update_config_invalid_yaml():
 
         # Test YAMLError (invalid syntax)
         payload_yaml_err = {"config_yaml": "foo: [unclosed list"}
-        response_err = client.post("/api/config", json=payload_yaml_err, headers=headers)
+        response_err = client.post(
+            "/api/config", json=payload_yaml_err, headers=headers
+        )
         assert response_err.status_code == 400
         assert "Invalid YAML" in response_err.json()["detail"]

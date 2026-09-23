@@ -1,15 +1,16 @@
 import asyncio
 import os
-from temporalio.common import RetryPolicy
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
-from orchestrator.remote_saver import AsyncHttpSaver
-from temporalio.exceptions import ApplicationError
+
 from temporalio import activity, workflow
 from temporalio.client import Client
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
+from orchestrator.remote_saver import AsyncHttpSaver
 from orchestrator.workflows.ci_pipeline import build_ci_pipeline
 from orchestrator.workflows.pm_standup import build_pm_standup
 
@@ -31,7 +32,9 @@ async def init_worker_state():
     unified_api_url = os.environ.get("UNIFIED_API_URL", "http://unified-api:8000")
     token = os.environ.get("INTERNAL_TOKEN") or os.environ.get("CHECKPOINT_AUTH_TOKEN")
     if not token and os.environ.get("ENV") == "production":
-        raise RuntimeError("INTERNAL_TOKEN environment variable is required in production")
+        raise RuntimeError(
+            "INTERNAL_TOKEN environment variable is required in production"
+        )
     checkpointer = AsyncHttpSaver(unified_api_url, token=token)
 
     ci_graph = build_ci_pipeline().compile(checkpointer=checkpointer)
@@ -53,7 +56,11 @@ async def run_langgraph_workflow(job_input: JobInput) -> str:
     elif job_input.workflow_type == "pm_standup":
         compiled_graph = pm_graph
     else:
-        raise ApplicationError(f"Unknown workflow type: {job_input.workflow_type}", type="ValueError", non_retryable=True)
+        raise ApplicationError(
+            f"Unknown workflow type: {job_input.workflow_type}",
+            type="ValueError",
+            non_retryable=True,
+        )
 
     config = {"configurable": {"thread_id": job_input.job_id}}
     initial_state = {"job_id": job_input.job_id}

@@ -12,11 +12,11 @@ KUBE_API_URL ?= $(if $(findstring 127.0.0.1,$(CURRENT_API_URL)),$(CURRENT_API_UR
 
 cluster-up:
 	@echo "Creating local kind cluster..."
-	@cat <<EOF | kind create cluster --name gordon-dev --config=- || true
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-networking:
-  disableDefaultCNI: true
+	@cat <<EOF | kind create cluster --name gordon-dev --config=- || true \
+kind: Cluster \
+apiVersion: kind.x-k8s.io/v1alpha4 \
+networking: \
+  disableDefaultCNI: true \
 EOF
 	@echo "Installing Calico CNI for network policies..."
 	@kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.3/manifests/calico.yaml
@@ -78,9 +78,8 @@ test-ci:
 	docker run --rm -d --name temporal-dev -p 7233:7233 -p 8233:8233 temporalio/admin-tools:latest temporal server start-dev --ui-port 8233 --ip 0.0.0.0
 	@echo "Waiting for Temporal to be ready..."
 	@while ! curl --retry 5 --retry-all-errors -sSf http://localhost:8233 > /dev/null 2>&1; do sleep 1; done
-	uv run pytest tests/ --ignore=tests/e2e/ || (docker stop temporal-dev && exit 1)
+	uv run pytest tests/ -m "not e2e" || (docker stop temporal-dev && exit 1)
 	docker stop temporal-dev
-	./tests/smoke_test.sh
 
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)

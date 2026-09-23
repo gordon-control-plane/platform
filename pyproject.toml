@@ -33,5 +33,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = ["tests/e2e"]
 timeout = 30
+markers = [
+    "e2e: End-to-end tests requiring a Kubernetes cluster",
+]

@@ -2,12 +2,12 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import time
 import uuid
 from typing import Any
 
 import httpx
-import re
 
 # Pre-compiled at module scope
 MALICIOUS_REGEX = re.compile(r"\.\./|<script>|system\(|exec\(", re.IGNORECASE)
@@ -16,12 +16,12 @@ import yaml  # type: ignore
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
 
 # At top of file:
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
+from pydantic import BaseModel
 
 # In module body:
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ http_client = httpx.AsyncClient(timeout=30.0)
 db_pool: AsyncConnectionPool | None = None
 checkpointer: AsyncPostgresSaver | None = None
 
+
 @app.on_event("startup")
 async def startup_event():
     global db_pool, checkpointer
@@ -42,12 +43,15 @@ async def startup_event():
             db_uri,
             min_size=2,
             max_size=10,
-            kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": 0},
+            kwargs={
+                "autocommit": True,
+                "row_factory": dict_row,
+                "prepare_threshold": 0,
+            },
         )
         await db_pool.open()
         checkpointer = AsyncPostgresSaver(db_pool)
         await checkpointer.setup()
-
 
 
 @app.on_event("shutdown")
@@ -72,9 +76,7 @@ app.add_middleware(
 def get_allowlist_path():
     return os.environ.get(
         "ADMIN_ALLOWLIST_PATH",
-        "/etc/unified-api/allowlist.yaml"
-        if os.path.exists("/etc/unified-api/allowlist.yaml")
-        else "admin-allowlist.yaml",
+        "/etc/unified-api/allowlist.yaml",
     )
 
 
@@ -106,16 +108,19 @@ async def verify_csrf_header(request: Request, call_next):
 
 
 def get_current_user(
-    request: Request,
-    tailscale_user_login: str | None = Header(None)
+    request: Request, tailscale_user_login: str | None = Header(None)
 ) -> str:
     internal_user = os.environ.get("INTERNAL_SERVICE_USER", "orchestrator@internal")
     if tailscale_user_login == internal_user:
         auth_header = request.headers.get("Authorization", "")
-        expected_token = os.environ.get("INTERNAL_TOKEN") or os.environ.get("CHECKPOINT_AUTH_TOKEN")
+        expected_token = os.environ.get("INTERNAL_TOKEN") or os.environ.get(
+            "CHECKPOINT_AUTH_TOKEN"
+        )
         if not expected_token or auth_header != f"Bearer {expected_token}":
             if os.environ.get("ENV") != "dev":
-                raise HTTPException(status_code=401, detail="Invalid internal service token")
+                raise HTTPException(
+                    status_code=401, detail="Invalid internal service token"
+                )
         return internal_user
 
     if not tailscale_user_login:
@@ -179,12 +184,12 @@ async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
             total_bytes += len(chunk)
             if total_bytes > MAX_BODY_SIZE:
                 raise HTTPException(status_code=413, detail="Payload too large")
-            buffer += chunk.decode('utf-8', errors='ignore')
+            buffer += chunk.decode("utf-8", errors="ignore")
             if MALICIOUS_REGEX.search(buffer):
                 raise HTTPException(status_code=400, detail="Malicious input detected.")
             buffer = buffer[-20:]
             yield chunk
-            
+
     body = validated_stream()
 
     headers = dict(request.headers)
@@ -231,6 +236,7 @@ async def create_workflow(req: WorkflowRequest, user: str = Depends(get_current_
     # Submit Temporal workflow (Stub)
     return {"id": "wf_12345", "status": "started", "user": user}
 
+
 def verify_thread_access(thread_id: str, user: str) -> None:
     internal_user = os.environ.get("INTERNAL_SERVICE_USER", "orchestrator@internal")
     if user == internal_user:
@@ -238,14 +244,28 @@ def verify_thread_access(thread_id: str, user: str) -> None:
     if ":" in thread_id:
         owner = thread_id.split(":", 1)[0]
         if owner != user and user not in _allowlist_cache.get("admins", []):
-            raise HTTPException(status_code=403, detail="Unauthorized access to thread checkpoint")
+            raise HTTPException(
+                status_code=403, detail="Unauthorized access to thread checkpoint"
+            )
+
 
 @app.get("/api/checkpoints/{thread_id}")
-async def get_checkpoint(thread_id: str, checkpoint_ns: str = "", checkpoint_id: str = "", user: str = Depends(get_current_user)):
+async def get_checkpoint(
+    thread_id: str,
+    checkpoint_ns: str = "",
+    checkpoint_id: str = "",
+    user: str = Depends(get_current_user),
+):
     if not checkpointer:
         raise HTTPException(status_code=500, detail="Database not configured")
     verify_thread_access(thread_id, user)
-    config = {"configurable": {"thread_id": thread_id, "checkpoint_ns": checkpoint_ns, "checkpoint_id": checkpoint_id}}
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "checkpoint_ns": checkpoint_ns,
+            "checkpoint_id": checkpoint_id,
+        }
+    }
     tup = await checkpointer.aget_tuple(config)
     if not tup:
         raise HTTPException(status_code=404, detail="Checkpoint not found")
@@ -253,32 +273,47 @@ async def get_checkpoint(thread_id: str, checkpoint_ns: str = "", checkpoint_id:
         "config": tup.config,
         "checkpoint": tup.checkpoint,
         "metadata": tup.metadata,
-        "parent_config": tup.parent_config
+        "parent_config": tup.parent_config,
     }
 
+
 @app.post("/api/checkpoints/{thread_id}")
-async def save_checkpoint(thread_id: str, req: Request, user: str = Depends(get_current_user)):
+async def save_checkpoint(
+    thread_id: str, req: Request, user: str = Depends(get_current_user)
+):
     if not checkpointer:
         raise HTTPException(status_code=500, detail="Database not configured")
     verify_thread_access(thread_id, user)
     data = await req.json()
     payload_thread_id = data.get("config", {}).get("configurable", {}).get("thread_id")
     if payload_thread_id != thread_id:
-        raise HTTPException(status_code=400, detail="Thread ID in URL does not match config.configurable.thread_id")
-    config = await checkpointer.aput(data["config"], data["checkpoint"], data["metadata"], data["new_versions"])
+        raise HTTPException(
+            status_code=400,
+            detail="Thread ID in URL does not match config.configurable.thread_id",
+        )
+    config = await checkpointer.aput(
+        data["config"], data["checkpoint"], data["metadata"], data["new_versions"]
+    )
     return {"config": config}
 
+
 @app.post("/api/checkpoints/{thread_id}/writes")
-async def save_checkpoint_writes(thread_id: str, req: Request, user: str = Depends(get_current_user)):
+async def save_checkpoint_writes(
+    thread_id: str, req: Request, user: str = Depends(get_current_user)
+):
     if not checkpointer:
         raise HTTPException(status_code=500, detail="Database not configured")
     verify_thread_access(thread_id, user)
     data = await req.json()
     payload_thread_id = data.get("config", {}).get("configurable", {}).get("thread_id")
     if payload_thread_id != thread_id:
-        raise HTTPException(status_code=400, detail="Thread ID in URL does not match config.configurable.thread_id")
+        raise HTTPException(
+            status_code=400,
+            detail="Thread ID in URL does not match config.configurable.thread_id",
+        )
     await checkpointer.aput_writes(data["config"], data["writes"], data["task_id"])
     return {"status": "ok"}
+
 
 @app.get("/api/workflows/{workflow_id}/state")
 async def get_workflow_state(workflow_id: str, user: str = Depends(get_current_user)):
@@ -337,7 +372,7 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
             "Accept": "application/vnd.github.v3+json",
         }
         prs_url = f"https://api.github.com/repos/{repo}/pulls?state=open&head={repo.split('/')[0]}:config-update-"
-        
+
         config_prs = []
         for page in range(1, 10):
             page_url = f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100&page={page}"
@@ -347,13 +382,17 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
             page_prs = page_resp.json()
             if not page_prs:
                 break
-            matching_prs = [pr for pr in page_prs if pr.get("head", {}).get("ref", "").startswith("config-update-")]
+            matching_prs = [
+                pr
+                for pr in page_prs
+                if pr.get("head", {}).get("ref", "").startswith("config-update-")
+            ]
             if matching_prs:
                 config_prs.extend(matching_prs)
                 break
             if len(page_prs) < 100:
                 break
-            
+
         if config_prs:
             raise HTTPException(
                 status_code=409, detail="A configuration PR is already open"
