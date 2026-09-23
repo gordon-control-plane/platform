@@ -24,9 +24,14 @@ def check_pod_ready(label_selector: str):
         pytest.fail(f"Pod matching {label_selector} not ready. Error: {e.stderr}")
 
 
+def test_ateapi_running():
+    check_pod_ready("app.kubernetes.io/component=ateapi")
 
+def test_atecontroller_running():
+    check_pod_ready("app.kubernetes.io/component=atecontroller")
 
-
+def test_atelet_running():
+    check_pod_ready("app.kubernetes.io/component=atelet")
 
 def test_postgres_operator_running():
     # Zalando postgres operator creates pods labeled app.kubernetes.io/name=postgres-operator
@@ -46,3 +51,6 @@ def test_temporal_running():
     # Bitnami temporal chart usually uses app.kubernetes.io/name=temporal
     # Just check if at least one temporal component is running
     check_pod_ready("app.kubernetes.io/name=temporal")
+
+def test_minio_running():
+    check_pod_ready("app=ate-minio")

@@ -49,6 +49,8 @@ spec:
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
+            runAsUser: 1000
+            runAsGroup: 1000
             capabilities:
               drop:
                 - ALL
@@ -76,6 +78,8 @@ spec:
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
+            runAsUser: 1000
+            runAsGroup: 1000
           volumeMounts:
             - name: tailscale-state
               mountPath: /var/lib/tailscale
@@ -95,6 +99,8 @@ spec:
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
+            runAsUser: 1000
+            runAsGroup: 1000
 
       volumes:
         - name: tailscale-state
