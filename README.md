@@ -1,16 +1,15 @@
 # Gordon Control Plane
 
-Gordon Control Plane (`gordon-control-plane`) is a Two-Plane multi-agent orchestration and management platform. It combines durable, long-running agent workflows with fast, interactive user-agent sessions, all built upon a secure, isolated sandboxing environment.
+Gordon Control Plane (`gordon-control-plane`) is a One-Plane multi-agent orchestration and management platform. It combines durable, long-running agent workflows with fast, interactive user-agent sessions, all built upon a secure, isolated sandboxing environment.
 
 ## Key Features
 
-- **Two-Plane Architecture**:
+- **One-Plane Architecture**: All components, including agent execution environments, run in the same Kubernetes cluster plane, protected by strict isolation.
   - **Automation Plane**: Built on Temporal and LangGraph for long-running, durable workflows (like CI pipelines and PM standups).
-  - **Interactive Plane**: Powered by Omnigent for direct, real-time user-agent interaction.
-- **Gateway (LiteLLM + Shunt)**: A high-throughput LiteLLM gateway with a token-optimizing Shunt middleware that routes, caches, and enforces policies on LLM requests.
-- **Centralized MCP**: Model Context Protocol server manager that standardizes tool and context delivery to agents.
-- **OpenShell Sandbox**: Secure container isolation, enforcing network restrictions and filesystem boundaries for agent tasks.
-- **Cloud-Native Infrastructure**: Kubernetes/Helm-first deployment (`charts/agent-platform`), backed by PostgreSQL for state.
+  - **Interactive Plane**: For direct, real-time user-agent interaction.
+- **Gateway (Unified API + LiteLLM)**: A high-throughput gateway that routes and enforces policies on LLM requests.
+- **Agent Substrate Sandbox**: Secure container isolation, enforcing network restrictions (read-only root, no CAP_SYS_ADMIN, and explicitly permitted network endpoints) for agent tasks via RWO hardlinked clones.
+- **Cloud-Native Infrastructure**: Kubernetes/Helm-first deployment (`charts/agent-platform`), backed by PostgreSQL (Zalando Operator) for state.
 
 ## Architecture
 

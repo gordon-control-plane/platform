@@ -17,6 +17,8 @@ spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
+      {{- if .Values.workers.runtimeClassName }}
+      runtimeClassName: {{ .Values.workers.runtimeClassName }}
       {{- end }}
       securityContext:
         runAsNonRoot: true
@@ -25,7 +27,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: temporal-worker
-          image: "ghcr.io/wgordon17/agent-platform-worker:{{ .Values.global.image.tag | default "latest" }}"
+          image: "{{ .Values.global.image.repository | default "ghcr.io/gordon-control-plane" }}/agent-platform-worker:{{ .Values.global.image.tag | default "latest" }}"
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
@@ -43,20 +45,48 @@ spec:
             - name: tmp-volume
               mountPath: /tmp
           env:
+            - name: UNIFIED_API_URL
+              value: 'http://{{ include "agent-platform.fullname" . }}-caddy:8080'
             - name: TEMPORAL_URL
               value: '{{ .Release.Name }}-temporal-frontend:7233'
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: agent-platform.{{ .Release.Name }}-db.credentials.postgresql.acid.zalan.do
-                  key: password
-            - name: DATABASE_URL
-              value: "postgres://agent-platform:$(PG_PASSWORD)@{{ .Release.Name }}-db:5432/agent-platform"
             - name: OPENAI_BASE_URL
-              value: 'http://{{ include "agent-platform.fullname" . }}-litellm:4000/v1'
+              value: 'http://{{ include "agent-platform.fullname" . }}-caddy:8080/v1'
             - name: LITELLM_URL
-              value: 'http://{{ include "agent-platform.fullname" . }}-litellm:4000/v1'
+              value: 'http://{{ include "agent-platform.fullname" . }}-caddy:8080/v1'
           command: ["python", "-m", "orchestrator.temporal_worker"]
       volumes:
         - name: tmp-volume
           emptyDir: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-workers-netpol
+spec:
+  podSelector:
+    matchLabels:
+      app: workers
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: temporal
+      ports:
+        - protocol: TCP
+          port: 7233
+    - to:
+        - podSelector:
+            matchLabels:
+              app: tailscale-ingress
+      ports:
+        - protocol: TCP
+          port: 8080

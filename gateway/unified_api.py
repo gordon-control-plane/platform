@@ -1,29 +1,64 @@
-import os
-import yaml  # type: ignore
-import httpx
-from gateway.shunt_middleware import apply_shunt_middleware
-from fastapi import FastAPI, Depends, HTTPException, Request, Header
-import time
 import asyncio
 import base64
-from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
-
-
 import logging
+import os
+import re
+import time
+import uuid
+from typing import Any
 
+import httpx
+
+# Pre-compiled at module scope
+MALICIOUS_REGEX = re.compile(r"\.\./|<script>|system\(|exec\(", re.IGNORECASE)
+MAX_BODY_SIZE = 10 * 1024 * 1024
+import yaml  # type: ignore
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+
+# At top of file:
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
+from pydantic import BaseModel
+
+# In module body:
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Unified API BFF")
 
 http_client = httpx.AsyncClient(timeout=30.0)
 
+db_pool: AsyncConnectionPool | None = None
+checkpointer: AsyncPostgresSaver | None = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    global db_pool, checkpointer
+    db_uri = os.environ.get("DATABASE_URL")
+    if db_uri:
+        db_pool = AsyncConnectionPool(
+            db_uri,
+            min_size=2,
+            max_size=10,
+            kwargs={
+                "autocommit": True,
+                "row_factory": dict_row,
+                "prepare_threshold": 0,
+            },
+        )
+        await db_pool.open()
+        checkpointer = AsyncPostgresSaver(db_pool)
+        await checkpointer.setup()
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await http_client.aclose()
+    if db_pool:
+        await db_pool.close()
 
 
 allowed_origins = os.environ.get(
@@ -41,9 +76,7 @@ app.add_middleware(
 def get_allowlist_path():
     return os.environ.get(
         "ADMIN_ALLOWLIST_PATH",
-        "/etc/unified-api/allowlist.yaml"
-        if os.path.exists("/etc/unified-api/allowlist.yaml")
-        else "admin-allowlist.yaml",
+        "/etc/unified-api/allowlist.yaml",
     )
 
 
@@ -61,18 +94,35 @@ LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 
 @app.middleware("http")
 async def verify_csrf_header(request: Request, call_next):
-    if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
-        if request.headers.get("X-Requested-With") != "XMLHttpRequest":
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "detail": "CSRF verification failed: Missing X-Requested-With header"
-                },
-            )
+    if (
+        request.method in ["POST", "PUT", "PATCH", "DELETE"]
+        and request.headers.get("X-Requested-With") != "XMLHttpRequest"
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": "CSRF verification failed: Missing X-Requested-With header"
+            },
+        )
     return await call_next(request)
 
 
-def get_current_user(tailscale_user_login: Optional[str] = Header(None)) -> str:
+def get_current_user(
+    request: Request, tailscale_user_login: str | None = Header(None)
+) -> str:
+    internal_user = os.environ.get("INTERNAL_SERVICE_USER", "orchestrator@internal")
+    if tailscale_user_login == internal_user:
+        auth_header = request.headers.get("Authorization", "")
+        expected_token = os.environ.get("INTERNAL_TOKEN") or os.environ.get(
+            "CHECKPOINT_AUTH_TOKEN"
+        )
+        if not expected_token or auth_header != f"Bearer {expected_token}":
+            if os.environ.get("ENV") != "dev":
+                raise HTTPException(
+                    status_code=401, detail="Invalid internal service token"
+                )
+        return internal_user
+
     if not tailscale_user_login:
         if os.environ.get("ENV") == "dev":
             return "dev@example.com"
@@ -82,7 +132,7 @@ def get_current_user(tailscale_user_login: Optional[str] = Header(None)) -> str:
     return tailscale_user_login
 
 
-_allowlist_cache: Dict[str, Any] = {}
+_allowlist_cache: dict[str, Any] = {}
 _ALLOWLIST_TTL = 300
 
 
@@ -120,13 +170,27 @@ def verify_admin(user: str = Depends(get_current_user)) -> str:
 @app.post("/v1/chat/completions")
 async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Payload too large")
-    raw_body = await request.body()
-    if len(raw_body) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Payload too large")
+    if content_length:
+        try:
+            if int(content_length) > MAX_BODY_SIZE:
+                raise HTTPException(status_code=413, detail="Payload too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header")
 
-    body = await asyncio.to_thread(apply_shunt_middleware, raw_body, user)
+    async def validated_stream():
+        total_bytes = 0
+        buffer = ""
+        async for chunk in request.stream():
+            total_bytes += len(chunk)
+            if total_bytes > MAX_BODY_SIZE:
+                raise HTTPException(status_code=413, detail="Payload too large")
+            buffer += chunk.decode("utf-8", errors="ignore")
+            if MALICIOUS_REGEX.search(buffer):
+                raise HTTPException(status_code=400, detail="Malicious input detected.")
+            buffer = buffer[-20:]
+            yield chunk
+
+    body = validated_stream()
 
     headers = dict(request.headers)
     for h in ["host", "content-length", "x-requested-with"]:
@@ -164,13 +228,91 @@ async def chat_proxy(request: Request, user: str = Depends(get_current_user)):
 
 class WorkflowRequest(BaseModel):
     name: str
-    args: Dict[str, Any]
+    args: dict[str, Any]
 
 
 @app.post("/api/workflows")
 async def create_workflow(req: WorkflowRequest, user: str = Depends(get_current_user)):
     # Submit Temporal workflow (Stub)
     return {"id": "wf_12345", "status": "started", "user": user}
+
+
+def verify_thread_access(thread_id: str, user: str) -> None:
+    internal_user = os.environ.get("INTERNAL_SERVICE_USER", "orchestrator@internal")
+    if user == internal_user:
+        return
+    if ":" in thread_id:
+        owner = thread_id.split(":", 1)[0]
+        if owner != user and user not in _allowlist_cache.get("admins", []):
+            raise HTTPException(
+                status_code=403, detail="Unauthorized access to thread checkpoint"
+            )
+
+
+@app.get("/api/checkpoints/{thread_id}")
+async def get_checkpoint(
+    thread_id: str,
+    checkpoint_ns: str = "",
+    checkpoint_id: str = "",
+    user: str = Depends(get_current_user),
+):
+    if not checkpointer:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    verify_thread_access(thread_id, user)
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "checkpoint_ns": checkpoint_ns,
+            "checkpoint_id": checkpoint_id,
+        }
+    }
+    tup = await checkpointer.aget_tuple(config)
+    if not tup:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+    return {
+        "config": tup.config,
+        "checkpoint": tup.checkpoint,
+        "metadata": tup.metadata,
+        "parent_config": tup.parent_config,
+    }
+
+
+@app.post("/api/checkpoints/{thread_id}")
+async def save_checkpoint(
+    thread_id: str, req: Request, user: str = Depends(get_current_user)
+):
+    if not checkpointer:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    verify_thread_access(thread_id, user)
+    data = await req.json()
+    payload_thread_id = data.get("config", {}).get("configurable", {}).get("thread_id")
+    if payload_thread_id != thread_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Thread ID in URL does not match config.configurable.thread_id",
+        )
+    config = await checkpointer.aput(
+        data["config"], data["checkpoint"], data["metadata"], data["new_versions"]
+    )
+    return {"config": config}
+
+
+@app.post("/api/checkpoints/{thread_id}/writes")
+async def save_checkpoint_writes(
+    thread_id: str, req: Request, user: str = Depends(get_current_user)
+):
+    if not checkpointer:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    verify_thread_access(thread_id, user)
+    data = await req.json()
+    payload_thread_id = data.get("config", {}).get("configurable", {}).get("thread_id")
+    if payload_thread_id != thread_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Thread ID in URL does not match config.configurable.thread_id",
+        )
+    await checkpointer.aput_writes(data["config"], data["writes"], data["task_id"])
+    return {"status": "ok"}
 
 
 @app.get("/api/workflows/{workflow_id}/state")
@@ -210,11 +352,11 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
     try:
         data = yaml.safe_load(req.config_yaml)
         if not isinstance(data, dict):
-            raise ValueError("YAML must be a dictionary")
+            raise TypeError("YAML must be a dictionary")
         if "model_list" not in data or not isinstance(data["model_list"], list):
             raise ValueError("Configuration must contain a valid 'model_list'")
-    except (yaml.YAMLError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid YAML provided: {str(e)}")
+    except (yaml.YAMLError, ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML provided: {e!s}")
 
     github_token = os.environ.get("GITHUB_TOKEN")
 
@@ -229,24 +371,34 @@ async def update_config(req: ConfigUpdateRequest, user: str = Depends(verify_adm
             "Authorization": f"Bearer {github_token}",
             "Accept": "application/vnd.github.v3+json",
         }
-        prs_url = f"https://api.github.com/repos/{repo}/pulls?state=open"
-        resp = await client.get(prs_url, headers=headers)
+        prs_url = f"https://api.github.com/repos/{repo}/pulls?state=open&head={repo.split('/')[0]}:config-update-"
 
-        if resp.status_code == 200:
-            prs = resp.json()
-            config_prs = [
+        config_prs = []
+        for page in range(1, 10):
+            page_url = f"https://api.github.com/repos/{repo}/pulls?state=open&per_page=100&page={page}"
+            page_resp = await client.get(page_url, headers=headers)
+            if page_resp.status_code != 200:
+                break
+            page_prs = page_resp.json()
+            if not page_prs:
+                break
+            matching_prs = [
                 pr
-                for pr in prs
+                for pr in page_prs
                 if pr.get("head", {}).get("ref", "").startswith("config-update-")
             ]
-            if config_prs:
-                raise HTTPException(
-                    status_code=409, detail="A configuration PR is already open"
-                )
+            if matching_prs:
+                config_prs.extend(matching_prs)
+                break
+            if len(page_prs) < 100:
+                break
+
+        if config_prs:
+            raise HTTPException(
+                status_code=409, detail="A configuration PR is already open"
+            )
 
         # Real GitOps PR Implementation
-        import uuid
-
         branch_name = f"config-update-{uuid.uuid4().hex[:8]}"
 
         # 1. Get default branch SHA

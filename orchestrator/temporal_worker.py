@@ -1,15 +1,16 @@
 import asyncio
+import os
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
-from dataclasses import dataclass
+
 from temporalio import activity, workflow
 from temporalio.client import Client
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
-import os
-from psycopg_pool import AsyncConnectionPool
-from psycopg.rows import dict_row
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from orchestrator.remote_saver import AsyncHttpSaver
 from orchestrator.workflows.ci_pipeline import build_ci_pipeline
 from orchestrator.workflows.pm_standup import build_pm_standup
 
@@ -20,38 +21,29 @@ class JobInput:
     workflow_type: str
 
 
-# Global variables for graphs and pool
-db_pool: AsyncConnectionPool | None = None
+# Global variables for graphs and checkpointer
+checkpointer: AsyncHttpSaver | None = None
 ci_graph: Any = None
 pm_graph: Any = None
 
 
 async def init_worker_state():
-    global db_pool, ci_graph, pm_graph
+    global checkpointer, ci_graph, pm_graph
+    unified_api_url = os.environ.get("UNIFIED_API_URL", "http://unified-api:8000")
+    token = os.environ.get("INTERNAL_TOKEN") or os.environ.get("CHECKPOINT_AUTH_TOKEN")
+    if not token and os.environ.get("ENV") == "production":
+        raise RuntimeError(
+            "INTERNAL_TOKEN environment variable is required in production"
+        )
+    checkpointer = AsyncHttpSaver(unified_api_url, token=token)
 
-    db_uri = os.environ.get(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
-    )
-    db_pool = AsyncConnectionPool(
-        db_uri,
-        min_size=2,
-        max_size=10,
-        kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": 0},
-        open=False,
-    )
-    await db_pool.open()
-
-    # Setup schema once globally
-    checkpointer = AsyncPostgresSaver(db_pool)
-    await checkpointer.setup()
-
-    ci_graph = build_ci_pipeline()
-    pm_graph = build_pm_standup()
+    ci_graph = build_ci_pipeline().compile(checkpointer=checkpointer)
+    pm_graph = build_pm_standup().compile(checkpointer=checkpointer)
 
 
 async def cleanup_worker_state():
-    if db_pool:
-        await db_pool.close()
+    if checkpointer and hasattr(checkpointer, "aclose"):
+        await checkpointer.aclose()
 
 
 @activity.defn
@@ -59,15 +51,16 @@ async def run_langgraph_workflow(job_input: JobInput) -> str:
     """
     We only accept `job_id` and do not serialize auth contexts or full state in Temporal.
     """
-    # Create an isolated checkpointer for this activity execution to avoid global lock contention
-    checkpointer = AsyncPostgresSaver(db_pool)
-
     if job_input.workflow_type == "ci_pipeline":
-        compiled_graph = ci_graph.compile(checkpointer=checkpointer)
+        compiled_graph = ci_graph
     elif job_input.workflow_type == "pm_standup":
-        compiled_graph = pm_graph.compile(checkpointer=checkpointer)
+        compiled_graph = pm_graph
     else:
-        raise ValueError(f"Unknown workflow type: {job_input.workflow_type}")
+        raise ApplicationError(
+            f"Unknown workflow type: {job_input.workflow_type}",
+            type="ValueError",
+            non_retryable=True,
+        )
 
     config = {"configurable": {"thread_id": job_input.job_id}}
     initial_state = {"job_id": job_input.job_id}
@@ -95,6 +88,7 @@ class AgentWorkflow:
             run_langgraph_workflow,
             job_input,
             start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(non_retryable_error_types=["ValueError"]),
         )
         if self.status in ["started", "processing"]:
             self.status = result

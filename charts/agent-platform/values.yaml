@@ -82,3 +82,63 @@ litellm:
   enabled: true
   service:
     port: 4000
+
+postgresql:
+  enabled: false
+
+workers:
+  # To prepare for Kata containers in 2.7, set this to e.g. "kata"
+  runtimeClassName: ""
+
+minio:
+  enabled: true
+  auth:
+    rootUser: admin
+  containerSecurityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+  # MinIO writes to /tmp and /data
+  extraVolumeMounts:
+    - name: tmp
+      mountPath: /tmp
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+
+victoriametrics:
+  enabled: true
+  securityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  extraVolumeMounts:
+    - name: tmp
+      mountPath: /tmp
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+
+git-pkgs-proxy:
+  enabled: true
+  securityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+promptfoo:
+  enabled: true

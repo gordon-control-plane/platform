@@ -1,7 +1,13 @@
-import pytest
-from scripts.local_worker import _secure_resolve, WORKSPACE_BOUNDARY
 from unittest.mock import patch
-from scripts.local_worker import read_file, write_file
+
+import pytest
+
+from scripts.local_worker import (
+    WORKSPACE_BOUNDARY,
+    _secure_resolve,
+    read_file,
+    write_file,
+)
 
 
 def test_secure_resolve_valid_path():
@@ -26,6 +32,14 @@ async def test_read_and_write_file(tmp_path):
 
         # Clean up manually
         (tmp_path / test_path).unlink()
+
+
+@pytest.mark.asyncio
+async def test_read_file_not_found(tmp_path):
+    with patch("scripts.local_worker.WORKSPACE_BOUNDARY", tmp_path):
+        test_path = "non_existent_file.txt"
+        with pytest.raises(FileNotFoundError):
+            await read_file(test_path)
 
 
 def test_secure_resolve_absolute_path_escape():
