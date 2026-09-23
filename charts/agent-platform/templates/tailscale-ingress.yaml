@@ -109,6 +109,7 @@ spec:
             - name: tailscale-run
               mountPath: /var/run/tailscale
             - name: tmp-volume
+              mountPath: /tmp
         - name: tailscale-serve-configurator
           image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
           command: ["/bin/sh", "-c"]
