@@ -57,7 +57,7 @@ spec:
         app: tailscale-ingress
       annotations:
         kube-linter.io/ignore-checks: "env-var-secret"
-        checksum/config: {{ .Values.tailscaleIngress.caddyConfig | sha256sum }}
+        checksum/config: {{ .Values.tailscaleIngress.caddyConfig | sha256sum | quote }}
     spec:
       serviceAccountName: {{ include "agent-platform.fullname" . }}-tailscale-ingress
       initContainers:
@@ -76,7 +76,9 @@ spec:
                   name: {{ .Values.tailscaleIngress.secretName }}
                   key: TS_AUTHKEY
             - name: TS_HOSTNAME
-              value: {{ .Values.tailscaleIngress.hostname }}
+              value: {{ .Values.tailscaleIngress.hostname | quote }}
+            - name: TS_STATE_DIR
+              value: "/tmp"
             - name: TS_EXTRA_ARGS
               value: "--ssh"
           resources:
@@ -107,9 +109,6 @@ spec:
             - name: tailscale-run
               mountPath: /var/run/tailscale
             - name: tmp-volume
-              mountPath: /tmp
-
-      containers:
         - name: tailscale-serve-configurator
           image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
           command: ["/bin/sh", "-c"]
@@ -120,8 +119,7 @@ spec:
               until tailscale status; do sleep 1; done
               echo "Configuring tailscale serve..."
               tailscale serve --bg --set-path / http://127.0.0.1:8080
-              echo "Serve configured. Idling."
-              sleep infinity
+              echo "Serve configured. Exiting."
           resources:
             requests:
               cpu: 5m
@@ -143,6 +141,8 @@ spec:
               mountPath: /var/run/tailscale
             - name: tmp-volume
               mountPath: /tmp
+      containers:
+
         - name: caddy
           image: "{{ .Values.tailscaleIngress.caddyImage.repository }}:{{ .Values.tailscaleIngress.caddyImage.tag }}"
           imagePullPolicy: IfNotPresent

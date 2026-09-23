@@ -1,4 +1,7 @@
+import os
+import shutil
 import subprocess
+import tempfile
 import yaml  # type: ignore
 import pytest
 
@@ -37,6 +40,7 @@ def find_manifest(manifests, kind, name):
         ),
         None,
     )
+
 
 def get_egress_ports(np_manifest):
     ports = []
@@ -79,11 +83,14 @@ def test_tailscale_deployment(manifests):
     )
     ts_sc = tailscale.get("securityContext", {})
     assert ts_sc.get("runAsNonRoot") is True
+    assert ts_sc.get("readOnlyRootFilesystem") is True
+    assert ts_sc.get("allowPrivilegeEscalation") is False
     assert "ALL" in ts_sc.get("capabilities", {}).get("drop", [])
+    assert "startupProbe" in tailscale, "Must have startupProbe"
+    assert "resources" in tailscale, "Must have resource constraints"
 
-    containers = spec.get("containers", [])
     configurator = next(
-        c for c in containers if c["name"] == "tailscale-serve-configurator"
+        c for c in init_containers if c["name"] == "tailscale-serve-configurator"
     )
     args = configurator.get("args", [""])[0]
     assert "until tailscale status; do sleep 1; done" in args
@@ -94,7 +101,7 @@ def test_tailscale_deployment(manifests):
     assert sc.get("readOnlyRootFilesystem") is True
     assert sc.get("allowPrivilegeEscalation") is False
     assert "ALL" in sc.get("capabilities", {}).get("drop", [])
-
+    containers = spec.get("containers", [])
     caddy = next(c for c in containers if c["name"] == "caddy")
     caddy_sc = caddy.get("securityContext", {})
     assert caddy_sc.get("runAsNonRoot") is True
@@ -104,6 +111,7 @@ def test_tailscale_deployment(manifests):
     assert (
         deployment["spec"]["strategy"]["type"] == "Recreate"
     ), "Deployment strategy should be Recreate"
+    assert deployment["spec"].get("replicas") == 1, "Deployment replicas must be strictly 1"
 
 
 def test_tailscale_rbac(manifests):
@@ -166,33 +174,49 @@ def test_caddy_config(manifests):
 
 
 def test_caddyfile_structural_validation(manifests):
-    import tempfile
     cm = find_manifest(
         manifests, "ConfigMap", f"{RELEASE_NAME}-caddy-config"
     )
     assert cm is not None, "Caddy ConfigMap should be created"
     caddyfile = cm["data"]["Caddyfile"]
     
-    # Skip if docker is not available
+    has_docker = False
     try:
         subprocess.run(["docker", "info"], check=True, capture_output=True)
+        res = subprocess.run(["docker", "image", "inspect", "caddy:2.7.6"], capture_output=True)
+        if res.returncode == 0:
+            has_docker = True
+        else:
+            pull_res = subprocess.run(["docker", "pull", "caddy:2.7.6"], capture_output=True)
+            if pull_res.returncode == 0:
+                has_docker = True
     except (subprocess.CalledProcessError, FileNotFoundError):
-        pytest.skip("Docker is not available to run caddy validate")
+        pass
+
+    has_local_caddy = shutil.which("caddy") is not None
+
+    if not has_docker and not has_local_caddy:
+        pytest.skip("Neither docker with caddy:2.7.6 image nor local caddy binary is available")
         
     with tempfile.NamedTemporaryFile(mode='w', suffix='.Caddyfile', delete=False) as f:
         f.write(caddyfile)
         tmp_path = f.name
         
     try:
-        # caddy validate
-        result = subprocess.run(
-            ["docker", "run", "--rm", "-i", "-v", f"{tmp_path}:/etc/caddy/Caddyfile", "caddy:2.7.6", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"],
-            capture_output=True,
-            text=True
-        )
+        if has_local_caddy:
+            result = subprocess.run(
+                ["caddy", "validate", "--config", tmp_path, "--adapter", "caddyfile"],
+                capture_output=True,
+                text=True
+            )
+        else:
+            result = subprocess.run(
+                ["docker", "run", "--rm", "-i", "-v", f"{tmp_path}:/etc/caddy/Caddyfile", "caddy:2.7.6", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"],
+                capture_output=True,
+                text=True
+            )
         assert result.returncode == 0, f"Caddyfile validation failed:\n{result.stderr}\n{caddyfile}"
     finally:
-        import os
         os.unlink(tmp_path)
 
 
@@ -219,6 +243,9 @@ def test_network_policies(manifests):
         manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
     )
     assert egress_np is not None, "Tailscale Egress NP should be created"
+    assert "Ingress" in egress_np["spec"].get("policyTypes", []), "Must have Ingress policy type"
+    assert "Egress" in egress_np["spec"].get("policyTypes", []), "Must have Egress policy type"
+    assert "ingress" in egress_np["spec"] and egress_np["spec"]["ingress"] == [], "Must have empty ingress rules (default deny)"
 
     egress_ports = get_egress_ports(egress_np)
     for rule in egress_np["spec"].get("egress", []):
