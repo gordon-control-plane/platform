@@ -59,8 +59,6 @@ def test_tailscale_deployment(manifests):
 
     spec = deployment["spec"]["template"]["spec"]
 
-    assert spec.get("serviceAccountName") == f"{RELEASE_NAME}-tailscale-ingress"
-
     init_containers = spec.get("initContainers", [])
     assert len(init_containers) == 0, "Should have no init containers"
 
@@ -70,11 +68,7 @@ def test_tailscale_deployment(manifests):
     env_vars = {
         e["name"]: e.get("value") or e.get("valueFrom") for e in caddy.get("env", [])
     }
-    assert "TS_KUBE_SECRET" in env_vars
-    assert (
-        env_vars["TS_KUBE_SECRET"]
-        == f"{RELEASE_NAME}-tailscale-state"  # pragma: allowlist secret
-    )
+    assert "TS_KUBE_SECRET" not in env_vars, "Must use PVC instead of TS_KUBE_SECRET"
 
     caddy_sc = caddy.get("securityContext", {})
     assert caddy_sc.get("runAsNonRoot") is True
@@ -89,42 +83,6 @@ def test_tailscale_deployment(manifests):
     ), "Deployment replicas must be strictly 1"
 
 
-def test_tailscale_rbac(manifests):
-    sa = find_manifest(manifests, "ServiceAccount", f"{RELEASE_NAME}-tailscale-ingress")
-    assert sa is not None, "ServiceAccount should be created"
-
-    role = find_manifest(manifests, "Role", f"{RELEASE_NAME}-tailscale-ingress")
-    assert role is not None, "Role should be created"
-
-    # Check permissions strictly limit access to the state secret
-    has_get_update_patch = False
-    has_create = False
-    for rule in role.get("rules", []):
-        if "secrets" in rule.get("resources", []):
-            if not rule.get("resourceNames"):
-                assert set(rule.get("verbs", [])) == {
-                    "create"
-                }, "Must only allow create verb namespace-wide for secrets"
-                has_create = True
-            elif "get" in rule.get("verbs", []):
-                assert f"{RELEASE_NAME}-tailscale-state" in rule.get(
-                    "resourceNames", []
-                ), "Must restrict access to specific secret name"
-                assert set(rule.get("verbs", [])) == {
-                    "get",
-                    "update",
-                    "patch",
-                }, "Must restrict to get, update, patch verbs"
-                has_get_update_patch = True
-    assert has_get_update_patch, "Must have rules to get/update/patch the state secret"
-    assert has_create, "Must have rules to create the state secret"
-
-    rb = find_manifest(manifests, "RoleBinding", f"{RELEASE_NAME}-tailscale-ingress")
-    assert rb is not None, "RoleBinding should be created"
-    assert rb["roleRef"]["name"] == f"{RELEASE_NAME}-tailscale-ingress"
-    assert any(s["name"] == f"{RELEASE_NAME}-tailscale-ingress" for s in rb["subjects"])
-
-
 def test_caddy_config(manifests):
     cm = find_manifest(manifests, "ConfigMap", f"{RELEASE_NAME}-caddy-config")
     assert cm is not None, "Caddy ConfigMap should be created"
@@ -137,18 +95,15 @@ def test_caddy_config(manifests):
     assert "read_header 5s" in caddyfile
     assert "trusted_proxies static 127.0.0.1/8 ::1/128" in caddyfile
     assert "bind tailscale/" in caddyfile
-    assert "header_up X-Webauth-User {http.auth.user.tailscale_user}" in caddyfile
-    assert "header_up X-Webauth-Email {http.auth.user.tailscale_user}" in caddyfile
+    assert "request_header X-Webauth-User {http.auth.user.tailscale_user}" in caddyfile
+    assert "request_header X-Webauth-Email {http.auth.user.tailscale_user}" in caddyfile
     assert (
-        "header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}" in caddyfile
+        "request_header X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}"
+        in caddyfile
     )
     assert "request_body {" in caddyfile
-    assert "request_body {" in caddyfile
     assert "max_size 10MB" in caddyfile
-    assert "handle /v1/*" in caddyfile
-    assert "reverse_proxy unified-api:8000" in caddyfile
-    assert "handle /telemetry*" in caddyfile
-    assert "handle /api/*" in caddyfile
+    assert "handle /*" in caddyfile
     assert "reverse_proxy frontend:3000" in caddyfile
 
 
@@ -225,13 +180,6 @@ def test_caddyfile_structural_validation(manifests):
 
 
 def test_network_policies(manifests):
-    ingress_np = find_manifest(
-        manifests, "NetworkPolicy", f"{RELEASE_NAME}-unified-api-ingress"
-    )
-    assert (
-        ingress_np is not None
-    ), "Unified API Ingress NP should be created when Tailscale is enabled"
-
     frontend_ingress = find_manifest(
         manifests, "NetworkPolicy", f"{RELEASE_NAME}-frontend-ingress"
     )
@@ -263,14 +211,11 @@ def test_network_policies(manifests):
             for to_rule in rule["to"]:
                 labels = to_rule.get("podSelector", {}).get("matchLabels", {})
                 # Check port scoping for specific apps
-                if labels.get("app") == "unified-api":
-                    assert any(p["port"] == 8000 for p in rule.get("ports", []))
                 if labels.get("app") == "frontend":
                     assert any(p["port"] == 3000 for p in rule.get("ports", []))
 
     assert 3478 in egress_ports
     assert 53 in egress_ports, "Must allow DNS egress"
-    assert 8000 in egress_ports, "Must allow egress to unified API backend"
     assert 3000 in egress_ports, "Must allow egress to UI frontend"
 
     # Find the generic UDP rule that now includes an ipBlock
@@ -327,11 +272,6 @@ def test_tailscale_disabled(chart_dir):
     )
     assert frontend_ingress is None, "Frontend Ingress NP should not be rendered"
 
-    unified_ingress = find_manifest(
-        manifests, "NetworkPolicy", f"{RELEASE_NAME}-unified-api-ingress"
-    )
-    assert unified_ingress is None, "Unified API Ingress NP should not be rendered"
-
     egress_np = find_manifest(
         manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
     )
@@ -361,7 +301,6 @@ def test_tailscale_frontend_disabled(chart_dir):
     egress_ports = get_egress_ports(egress_np)
 
     assert 3000 not in egress_ports, "Must not allow egress to UI frontend if disabled"
-    assert 8000 in egress_ports, "Must allow egress to unified API"
 
 
 def test_tailscale_unifiedapi_disabled(chart_dir):
@@ -374,11 +313,6 @@ def test_tailscale_unifiedapi_disabled(chart_dir):
         },
     )
 
-    unified_ingress = find_manifest(
-        manifests, "NetworkPolicy", f"{RELEASE_NAME}-unified-api-ingress"
-    )
-    assert unified_ingress is None, "Unified API Ingress NP should not be rendered"
-
     egress_np = find_manifest(
         manifests, "NetworkPolicy", f"{RELEASE_NAME}-tailscale-egress"
     )
@@ -386,5 +320,4 @@ def test_tailscale_unifiedapi_disabled(chart_dir):
 
     egress_ports = get_egress_ports(egress_np)
 
-    assert 8000 not in egress_ports, "Must not allow egress to unified API if disabled"
     assert 3000 in egress_ports, "Must allow egress to UI frontend"
