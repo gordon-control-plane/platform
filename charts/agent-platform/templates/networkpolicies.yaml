@@ -1,26 +1,3 @@
-{{- if and .Values.unifiedApi.enabled .Values.tailscaleIngress.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "agent-platform.fullname" . }}-unified-api-ingress
-  labels:
-    app: unified-api
-spec:
-  podSelector:
-    matchLabels:
-      app: unified-api
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: tailscale-ingress
-      ports:
-        - protocol: TCP
-          port: 8000
-{{- end }}
----
 {{- if and .Values.tailscaleIngress.enabled .Values.frontend.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -85,15 +62,6 @@ spec:
               - "192.168.0.0/16"
       ports:
         - protocol: UDP
-{{- if .Values.unifiedApi.enabled }}
-    - to:
-        - podSelector:
-            matchLabels:
-              app: unified-api
-      ports:
-        - protocol: TCP
-          port: 8000
-{{- end }}
 {{- if .Values.frontend.enabled }}
     - to:
         - podSelector:

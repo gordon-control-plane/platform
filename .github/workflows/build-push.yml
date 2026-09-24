@@ -22,6 +22,7 @@ jobs:
           - { name: "relay", path: "." }
           - { name: "unified-api", path: "build/Dockerfile.unified-api" }
           - { name: "frontend", path: "build/Dockerfile.frontend" }
+          - { name: "caddy-tailscale", path: "images/caddy-tailscale/Dockerfile" }
 
     uses: ./.github/workflows/_build-scan-push.yml
     with:

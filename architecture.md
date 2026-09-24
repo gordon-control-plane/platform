@@ -43,7 +43,7 @@ The base deployment layer defined by the `charts/agent-platform` Helm chart. It 
 The platform exposes its internal API and Frontend through an unprivileged Tailscale and Caddy ingress bridge, bypassing the need for standard Kubernetes Ingress controllers or public LoadBalancers.
 
 - **Tailscale Integration:** Tailscale is deployed as a **Native Sidecar** (a Kubernetes 1.28+ feature utilizing `initContainers` with `restartPolicy: Always`). This ensures the Tailscale daemon starts before the primary web server (Caddy) and cleanly terminates when the Pod shuts down.
-- **State Storage:** Instead of relying on PersistentVolumeClaims (PVCs) for Tailscale's node state, the implementation leverages `TS_KUBE_SECRET`. Tailscale state is durably stored in a Kubernetes Secret, eliminating volume provisioning overhead and improving reliability across pod rescheduling.
+- **State Storage:** Tailscale node state is durably stored using a `ReadWriteOnce` PersistentVolumeClaim (PVC). This provides a resilient identity for the Tailscale node and completely avoids the security risks associated with granting secret-creation RBAC permissions to the pod.
 - **Caddy Reverse Proxy:** Caddy handles local routing from the Tailscale interface to internal services (`unified-api` and `frontend`). To protect internal services from resource exhaustion, Caddy enforces specific volumetric limits:
   - `request_body` size is capped at 10MB.
   - `timeouts` are configured to prevent slowloris attacks (`read_header 5s`) while allowing sufficient time for larger payloads (`read_body 120s`).
@@ -57,7 +57,6 @@ To operate agents safely at scale, the architecture enforces multiple layers of 
 4. **API Authentication:** Temporal gRPC/REST APIs use mTLS/JWT authentication. Signals from the Interactive Plane are treated as untrusted and strictly validated.
 5. **MCP Authorization:** Tool invocations via the Centralized MCP require scoped authorization aligned with the calling agent's identity.
 6. **Cross-Tenant Data Isolation:** Gateway caches, tool contexts, and states are strictly keyed by tenant/agent ID to prevent data bleed.
-7. **Ingress Privilege Escalation (Accepted Risk):** Tailscale requires the `create` verb on secrets to initialize `TS_KUBE_SECRET`. Since Kubernetes RBAC cannot restrict `create` to specific `resourceNames`, the unprivileged Tailscale pod possesses the persistent right to create arbitrary secrets in its namespace. This is an accepted operational risk to enable PVC-less state storage.
 
 ## 5. Key Global Risks & Mitigations
 

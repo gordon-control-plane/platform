@@ -32,7 +32,6 @@ tailscaleIngress:
   secretName: tailscale-auth
   caddyConfig: |
     {
-        debug
         tailscale {
             ephemeral {{ .Values.tailscaleIngress.ephemeral }}
         }
@@ -48,45 +47,17 @@ tailscaleIngress:
     {{ include "agent-platform.tailscaleHostname" . }}.{{ .Values.tailscaleIngress.tailnet }} {
         bind tailscale/{{ include "agent-platform.tailscaleHostname" . }}
         tailscale_auth
+        request_header X-Webauth-User {http.auth.user.tailscale_user}
+        request_header X-Webauth-Name {http.auth.user.tailscale_name}
+        request_header X-Webauth-Email {http.auth.user.tailscale_user}
+        request_header X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
 
         request_body {
             max_size 10MB
         }
 
-        handle /v1/* {
-            reverse_proxy unified-api:8000 {
-                header_up X-Webauth-User {http.auth.user.tailscale_user}
-                header_up X-Webauth-Name {http.auth.user.tailscale_name}
-                header_up X-Webauth-Email {http.auth.user.tailscale_user}
-                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
-            }
-        }
-
-        handle /telemetry* {
-            reverse_proxy unified-api:8000 {
-                header_up X-Webauth-User {http.auth.user.tailscale_user}
-                header_up X-Webauth-Name {http.auth.user.tailscale_name}
-                header_up X-Webauth-Email {http.auth.user.tailscale_user}
-                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
-            }
-        }
-
-        handle /api/* {
-            reverse_proxy unified-api:8000 {
-                header_up X-Webauth-User {http.auth.user.tailscale_user}
-                header_up X-Webauth-Name {http.auth.user.tailscale_name}
-                header_up X-Webauth-Email {http.auth.user.tailscale_user}
-                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
-            }
-        }
-
         handle /* {
-            reverse_proxy frontend:3000 {
-                header_up X-Webauth-User {http.auth.user.tailscale_user}
-                header_up X-Webauth-Name {http.auth.user.tailscale_name}
-                header_up X-Webauth-Email {http.auth.user.tailscale_user}
-                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
-            }
+            reverse_proxy frontend:3000
         }
     }
 
