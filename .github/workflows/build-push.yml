@@ -10,19 +10,50 @@ permissions:
   packages: write
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set-matrix
+        run: |
+          # Initialize an empty JSON array
+          COMPONENTS="[]"
+
+          # 1. Find build/Dockerfile.*
+          for df in build/Dockerfile.*; do
+            if [ -f "$df" ]; then
+              name="${df#build/Dockerfile.}"
+              # Exclude any test dockerfiles just in case
+              if [[ "$name" != *"test"* ]]; then
+                COMPONENTS=$(echo "$COMPONENTS" | jq --arg n "$name" --arg p "$df" '. += [{"name": $n, "path": $p}]')
+              fi
+            fi
+          done
+
+          # 2. Find images/*/Dockerfile
+          for df in images/*/Dockerfile; do
+            if [ -f "$df" ]; then
+              dir_path=$(dirname "$df")
+              name=$(basename "$dir_path")
+              COMPONENTS=$(echo "$COMPONENTS" | jq --arg n "$name" --arg p "$df" '. += [{"name": $n, "path": $p}]')
+            fi
+          done
+
+          # 3. Handle the root placeholder services (mcp-server, interactive-agent, etc.)
+          for name in mcp-server interactive-agent agent-platform-worker sandbox relay; do
+            COMPONENTS=$(echo "$COMPONENTS" | jq --arg n "$name" --arg p "." '. += [{"name": $n, "path": $p}]')
+          done
+
+          echo "Generated matrix: $COMPONENTS"
+          echo "matrix={\"component\":$(echo "$COMPONENTS" | jq -c .)}" >> "$GITHUB_OUTPUT"
+
   build-and-push:
+    needs: setup
     strategy:
       fail-fast: false
-      matrix:
-        component:
-          - { name: "mcp-server", path: "." }
-          - { name: "interactive-agent", path: "." }
-          - { name: "agent-platform-worker", path: "." }
-          - { name: "sandbox", path: "." }
-          - { name: "relay", path: "." }
-          - { name: "unified-api", path: "build/Dockerfile.unified-api" }
-          - { name: "frontend", path: "build/Dockerfile.frontend" }
-          - { name: "caddy-tailscale", path: "images/caddy-tailscale/Dockerfile" }
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     uses: ./.github/workflows/_build-scan-push.yml
     with:
