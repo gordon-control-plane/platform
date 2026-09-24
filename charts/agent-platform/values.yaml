@@ -7,6 +7,11 @@ fullnameOverride: ""
 imagePullSecrets:
   - name: ghcr-secret
 
+database:
+  teamId: "platform"
+  superuser: "platform_admin"
+  version: "18"
+
 gitSync:
   repo: "https://github.com/gordon-control-plane/platform.git"
   branch: "main"
