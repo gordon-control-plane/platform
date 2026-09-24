@@ -69,8 +69,8 @@ jobs:
         with:
           cluster_name: e2e-cluster
 
-      - name: Build Helm Dependencies
-        run: helm dependency update charts/agent-platform
+      - name: Install uv
+        run: pip install uv
 
       - name: Deploy to Kind
         run: |
