@@ -42,27 +42,43 @@ deploy: setup check-cluster
 	@helm upgrade --install postgres-operator postgres-operator-charts/postgres-operator \
 		--namespace $(NAMESPACE) --create-namespace
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
-	@. .env && kubectl create secret docker-registry ghcr-secret \
-		--namespace $(NAMESPACE) \
-		--docker-server=ghcr.io \
-		--docker-username=gordon-control-plane \
-		--docker-password="$$GH_PAT" \
-		--dry-run=client -o yaml | kubectl apply -f -
-	@. .env && if [ -n "$$TAILSCALE_AUTH_KEY" ]; then \
-		kubectl create secret generic tailscale-auth \
+	@if [ -f .env ]; then \
+		. .env && kubectl create secret docker-registry ghcr-secret \
 			--namespace $(NAMESPACE) \
-			--from-literal=TS_AUTHKEY="$$TAILSCALE_AUTH_KEY" \
+			--docker-server=ghcr.io \
+			--docker-username=gordon-control-plane \
+			--docker-password="$$GH_PAT" \
 			--dry-run=client -o yaml | kubectl apply -f -; \
+		. .env && if [ -n "$$TAILSCALE_AUTH_KEY" ]; then \
+			kubectl create secret generic tailscale-auth \
+				--namespace $(NAMESPACE) \
+				--from-literal=TS_AUTHKEY="$$TAILSCALE_AUTH_KEY" \
+				--dry-run=client -o yaml | kubectl apply -f -; \
+		fi; \
 	fi
-	@. .env && helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
-		--namespace $(NAMESPACE) \
-		--set tailscaleIngress.tailnet="$$TAILSCALE_DOMAIN" \
-		--set tailscaleIngress.hostname="$(USER)-$(NAMESPACE)-$(RELEASE_NAME)" \
-		--set tailscaleIngress.ephemeral=true \
-		--set global.image.tag="$(GIT_SHA)" \
-		--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
-		--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
-		--wait --timeout 600s
+	@echo "Upgrading Helm chart..."
+	@if [ -f .env ]; then \
+		. .env && helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
+			--namespace $(NAMESPACE) \
+			--set tailscaleIngress.tailnet="$$TAILSCALE_DOMAIN" \
+			--set tailscaleIngress.hostname="$(USER)-$(NAMESPACE)-$(RELEASE_NAME)" \
+			--set tailscaleIngress.ephemeral=true \
+			--set global.image.tag="$(GIT_SHA)" \
+			--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
+			--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
+			$(HELM_ARGS) \
+			--wait --timeout 600s; \
+	else \
+		helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
+			--namespace $(NAMESPACE) \
+			--set tailscaleIngress.hostname="$(USER)-$(NAMESPACE)-$(RELEASE_NAME)" \
+			--set tailscaleIngress.ephemeral=true \
+			--set global.image.tag="$(GIT_SHA)" \
+			--set secrets.langfuseNextauthSecret="dummy" \ # pragma: allowlist secret
+			--set secrets.langfuseSalt="dummy" \ # pragma: allowlist secret
+			$(HELM_ARGS) \
+			--wait --timeout 600s; \
+	fi
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)
 

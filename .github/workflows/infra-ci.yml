@@ -77,7 +77,7 @@ jobs:
           # Set default kind API URL
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
-          make deploy KUBE_API_URL="$KUBE_API_URL"
+          make deploy KUBE_API_URL="$KUBE_API_URL" HELM_ARGS="--set tailscaleIngress.enabled=false"
 
       - name: Run Smoke Tests
         run: |
