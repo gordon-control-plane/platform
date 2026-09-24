@@ -21,29 +21,13 @@ jobs:
           # Initialize an empty JSON array
           COMPONENTS="[]"
 
-          # 1. Find build/Dockerfile.*
-          for df in build/Dockerfile.*; do
-            if [ -f "$df" ]; then
-              name="${df#build/Dockerfile.}"
-              # Exclude any test dockerfiles just in case
-              if [[ "$name" != *"test"* ]]; then
-                COMPONENTS=$(echo "$COMPONENTS" | jq --arg n "$name" --arg p "$df" '. += [{"name": $n, "path": $p}]')
-              fi
-            fi
-          done
-
-          # 2. Find images/*/Dockerfile
+          # Find images/*/Dockerfile
           for df in images/*/Dockerfile; do
             if [ -f "$df" ]; then
               dir_path=$(dirname "$df")
               name=$(basename "$dir_path")
               COMPONENTS=$(echo "$COMPONENTS" | jq --arg n "$name" --arg p "$df" '. += [{"name": $n, "path": $p}]')
             fi
-          done
-
-          # 3. Handle the root placeholder services (mcp-server, interactive-agent, etc.)
-          for name in mcp-server interactive-agent agent-platform-worker sandbox relay; do
-            COMPONENTS=$(echo "$COMPONENTS" | jq --arg n "$name" --arg p "." '. += [{"name": $n, "path": $p}]')
           done
 
           echo "Generated matrix: $COMPONENTS"
@@ -57,5 +41,5 @@ jobs:
 
     uses: ./.github/workflows/_build-scan-push.yml
     with:
-      dockerfile: ${{ matrix.component.path == '.' && format('{0}/Dockerfile', matrix.component.name) || matrix.component.path }}
+      dockerfile: ${{ matrix.component.path }}
       image: ghcr.io/${{ github.repository_owner }}/${{ matrix.component.name }}
