@@ -56,11 +56,13 @@ deploy: setup check-cluster
 	fi
 	@. .env && helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
 		--namespace $(NAMESPACE) \
+		--set tailscaleIngress.tailnet="$$TAILSCALE_DOMAIN" \
+		--set tailscaleIngress.hostname="$(USER)-$(NAMESPACE)-$(RELEASE_NAME)" \
+		--set tailscaleIngress.ephemeral=true \
 		--set global.image.tag="$(GIT_SHA)" \
 		--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
 		--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
 		--wait --timeout 600s
-
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)
 

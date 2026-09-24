@@ -5,7 +5,7 @@ metadata:
   name: {{ include "agent-platform.fullname" . }}-caddy-config
 data:
   Caddyfile: |
-{{ .Values.tailscaleIngress.caddyConfig | indent 4 }}
+{{ tpl .Values.tailscaleIngress.caddyConfig . | indent 4 }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -59,12 +59,13 @@ spec:
         kube-linter.io/ignore-checks: "env-var-secret"
         checksum/config: {{ .Values.tailscaleIngress.caddyConfig | sha256sum | quote }}
     spec:
+      securityContext:
+        fsGroup: 1000
       serviceAccountName: {{ include "agent-platform.fullname" . }}-tailscale-ingress
-      initContainers:
-        - name: tailscale
+      containers:
+        - name: caddy
           image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
           imagePullPolicy: IfNotPresent
-          restartPolicy: Always
           env:
             - name: TS_USERSPACE
               value: "true"
@@ -76,98 +77,27 @@ spec:
                   name: {{ .Values.tailscaleIngress.secretName }}
                   key: TS_AUTHKEY
             - name: TS_HOSTNAME
-              value: {{ .Values.tailscaleIngress.hostname | quote }}
+              value: {{ include "agent-platform.tailscaleHostname" . | quote }}
             - name: TS_STATE_DIR
-              value: "/tmp"
-            - name: TS_SOCKET
-              value: "/var/run/tailscale/tailscaled.sock"
-          resources:
-            requests:
-              cpu: 10m
-              memory: 64Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-          startupProbe:
-            exec:
-              command:
-                - tailscale
-                - status
-            initialDelaySeconds: 2
-            periodSeconds: 5
-            failureThreshold: 12
-          volumeMounts:
-            - name: tailscale-run
-              mountPath: /var/run/tailscale
-            - name: tmp-volume
-              mountPath: /tmp
-        - name: tailscale-serve-configurator
-          image: "{{ .Values.tailscaleIngress.image.repository }}:{{ .Values.tailscaleIngress.image.tag }}"
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -e
-              echo "Waiting for Tailscale..."
-              until tailscale status; do sleep 1; done
-              echo "Configuring tailscale serve..."
-              tailscale serve --bg --set-path / http://127.0.0.1:8080
-              echo "Serve configured. Exiting."
-          resources:
-            requests:
-              cpu: 5m
-              memory: 32Mi
-            limits:
-              cpu: 50m
-              memory: 64Mi
-          env:
-            - name: TS_SOCKET
-              value: "/var/run/tailscale/tailscaled.sock"
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-          volumeMounts:
-            - name: tailscale-run
-              mountPath: /var/run/tailscale
-            - name: tmp-volume
-              mountPath: /tmp
-      containers:
-
-        - name: caddy
-          image: "{{ .Values.tailscaleIngress.caddyImage.repository }}:{{ .Values.tailscaleIngress.caddyImage.tag }}"
-          imagePullPolicy: IfNotPresent
-          env:
+              value: /data/tailscale
             - name: XDG_CONFIG_HOME
-              value: /tmp/caddy/config
+              value: /data/caddy/config
             - name: XDG_DATA_HOME
-              value: /tmp/caddy/data
-          ports:
-            - containerPort: 8080
-              protocol: TCP
+              value: /data/caddy/data
           volumeMounts:
             - name: caddy-config
               mountPath: /etc/caddy/Caddyfile
               subPath: Caddyfile
-            - name: tmp-volume
+            - name: tailscale-run
               mountPath: /tmp
+            - name: data-volume
+              mountPath: /data
+          ports:
+            - containerPort: 443
+              protocol: TCP
           resources:
             requests:
               cpu: 10m
-              memory: 64Mi
             limits:
               cpu: 100m
               memory: 128Mi
@@ -180,13 +110,13 @@ spec:
             capabilities:
               drop:
                 - ALL
-
       volumes:
-        - name: tailscale-run
-          emptyDir: {}
-        - name: tmp-volume
-          emptyDir: {}
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: {{ include "agent-platform.fullname" . }}-tailscale-data
         - name: caddy-config
           configMap:
             name: {{ include "agent-platform.fullname" . }}-caddy-config
+        - name: tailscale-run
+          emptyDir: {}
 {{- end }}

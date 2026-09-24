@@ -1,0 +1,14 @@
+{{- if .Values.tailscaleIngress.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "agent-platform.fullname" . }}-tailscale-data
+  labels:
+    app: tailscale-ingress
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.tailscaleIngress.storage.size }}
+{{- end }}

@@ -19,18 +19,23 @@ secrets:
 tailscaleIngress:
   enabled: true
   image:
-    repository: tailscale/tailscale
+    repository: ghcr.io/gordon-control-plane/caddy-tailscale
     tag: latest
-  caddyImage:
-    repository: caddy
-    tag: 2-alpine
-  hostname: gordon-control-plane
+  hostname: "" # Dynamically generated via helper if left blank
+  tailnet: ""  # Must be provided via --set or values override (e.g. from .env)
+  ephemeral: false
+  storage:
+    size: 100Mi
+
   # The TS_AUTHKEY should be provided via secret:
   # kubectl create secret generic tailscale-auth --from-literal=TS_AUTHKEY=tskey-auth-xxxx
   secretName: tailscale-auth
   caddyConfig: |
     {
-        auto_https off
+        debug
+        tailscale {
+            ephemeral {{ .Values.tailscaleIngress.ephemeral }}
+        }
         servers {
             timeouts {
                 read_body 120s
@@ -40,28 +45,48 @@ tailscaleIngress:
         }
     }
 
-    # Caddyfile config
-    # Route via plain HTTP since Tailscale serve terminates TLS and injects Tailscale-User-Login
-    http://127.0.0.1:8080 {
+    {{ include "agent-platform.tailscaleHostname" . }}.{{ .Values.tailscaleIngress.tailnet }} {
+        bind tailscale/{{ include "agent-platform.tailscaleHostname" . }}
+        tailscale_auth
+
         request_body {
             max_size 10MB
         }
 
-
         handle /v1/* {
-            reverse_proxy unified-api:8000
+            reverse_proxy unified-api:8000 {
+                header_up X-Webauth-User {http.auth.user.tailscale_user}
+                header_up X-Webauth-Name {http.auth.user.tailscale_name}
+                header_up X-Webauth-Email {http.auth.user.tailscale_user}
+                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
+            }
         }
 
         handle /telemetry* {
-            reverse_proxy unified-api:8000
+            reverse_proxy unified-api:8000 {
+                header_up X-Webauth-User {http.auth.user.tailscale_user}
+                header_up X-Webauth-Name {http.auth.user.tailscale_name}
+                header_up X-Webauth-Email {http.auth.user.tailscale_user}
+                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
+            }
         }
 
         handle /api/* {
-            reverse_proxy unified-api:8000
+            reverse_proxy unified-api:8000 {
+                header_up X-Webauth-User {http.auth.user.tailscale_user}
+                header_up X-Webauth-Name {http.auth.user.tailscale_name}
+                header_up X-Webauth-Email {http.auth.user.tailscale_user}
+                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
+            }
         }
 
         handle /* {
-            reverse_proxy frontend:3000
+            reverse_proxy frontend:3000 {
+                header_up X-Webauth-User {http.auth.user.tailscale_user}
+                header_up X-Webauth-Name {http.auth.user.tailscale_name}
+                header_up X-Webauth-Email {http.auth.user.tailscale_user}
+                header_up X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
+            }
         }
     }
 

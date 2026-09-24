@@ -13,6 +13,8 @@ def chart_dir(tmp_path_factory):
     chart_path = tmp_dir / "agent-platform"
     shutil.copytree("charts/agent-platform", chart_path)
     subprocess.run(
-        ["helm", "dependency", "build", str(chart_path)], check=True, capture_output=True
+        ["helm", "dependency", "build", str(chart_path)],
+        check=True,
+        capture_output=True,
     )
     return str(chart_path)
