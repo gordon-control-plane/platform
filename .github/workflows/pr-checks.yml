@@ -8,6 +8,11 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install dependencies
         run: pip install uv && uv sync
+      - name: Add Helm repos
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add temporal https://go.temporal.io/helm-charts
+          helm repo update
       - name: Run prek checks
         run: uvx prek run --all-files
       - name: Run pytest
