@@ -1,6 +1,6 @@
 # Placeholder Dockerfile for all microservices
 # To be replaced with actual multi-stage builds in the next epic.
-FROM alpine:3.19
+FROM debian:bookworm-slim
 
 RUN echo "Microservice pending implementation."
 
