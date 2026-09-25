@@ -21,7 +21,7 @@ spec:
     langfuse: langfuse
     temporal: temporal
   postgresql:
-    version: "15"
+    version: !!str "15"
   resources:
     requests:
       cpu: 500m

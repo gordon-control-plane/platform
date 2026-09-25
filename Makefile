@@ -56,8 +56,9 @@ deploy: setup check-cluster
 				--dry-run=client -o yaml | kubectl apply -f -; \
 		fi; \
 	fi
-	@echo "Upgrading Helm chart..."
-	@if [ -f .env ]; then \
+	@echo "Upgrading Helm chart (streaming live pod status)..."
+	@kubectl get pods -n $(NAMESPACE) -w & WATCH_PID=$$!; \
+	if [ -f .env ]; then \
 		. .env && helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
 			--namespace $(NAMESPACE) \
 			--set tailscaleIngress.tailnet="$$TAILSCALE_DOMAIN" \
@@ -68,6 +69,7 @@ deploy: setup check-cluster
 			--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
 			$(HELM_ARGS) \
 			--wait --timeout 600s; \
+		HELM_EXIT=$$?; \
 	else \
 		helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
 			--namespace $(NAMESPACE) \
@@ -78,7 +80,10 @@ deploy: setup check-cluster
 			--set secrets.langfuseSalt="dummy" \
 			$(HELM_ARGS) \
 			--wait --timeout 600s; \
-	fi
+		HELM_EXIT=$$?; \
+	fi; \
+	kill $$WATCH_PID 2>/dev/null || true; \
+	exit $$HELM_EXIT
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)
 
