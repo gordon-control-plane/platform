@@ -67,8 +67,8 @@ hooks = [
 [[repos]]
 repo = "local"
 hooks = [
-  { id = "helm-lint", name = "Helm Lint", entry = "bash -c 'for d in charts/*; do if [ -d \"$d\" ] && [ -f \"$d/Chart.yaml\" ]; then helm lint \"$d\"; fi; done'", language = "system", pass_filenames = false, files = "^charts/" },
-  { id = "kube-linter", name = "Kube-Linter", entry = "kube-linter lint charts/ --config .kube-linter.yaml", language = "system", pass_filenames = false, files = "^charts/" },
-  { id = "kubeconform", name = "Kubeconform", entry = "bash -c 'for d in charts/*; do if [ -d \"$d\" ] && [ -f \"$d/Chart.yaml\" ]; then helm template \"$(basename \"$d\")\" \"$d\" --set secrets.langfuseNextauthSecret=\"dummy\" --set secrets.langfuseSalt=\"dummy\" | kubeconform -strict -summary -schema-location default -schema-location \"https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json\"; fi; done'", language = "system", pass_filenames = false, files = "^charts/" },
-  { id = "trivy-fs", name = "Trivy IaC", entry = "trivy fs charts/ --format table --exit-code 1 --severity CRITICAL,HIGH", language = "system", pass_filenames = false, files = "^charts/", stages = ["pre-push", "manual"] }
+  { id = "helm-lint", name = "Helm Lint", entry = "make lint-helm", language = "system", pass_filenames = false, files = "^charts/" },
+  { id = "kube-linter", name = "Kube-Linter", entry = "make lint-kube", language = "system", pass_filenames = false, files = "^charts/" },
+  { id = "kubeconform", name = "Kubeconform", entry = "make check-schema", language = "system", pass_filenames = false, files = "^charts/" },
+  { id = "trivy-fs", name = "Trivy IaC", entry = "make scan-iac", language = "system", pass_filenames = false, files = "^charts/", stages = ["pre-push", "manual"] }
 ]

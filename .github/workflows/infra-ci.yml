@@ -4,7 +4,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
-
 permissions:
   contents: read
   packages: read
@@ -46,61 +45,40 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
+      - name: Cache Trivy Database
+        uses: actions/cache@v3
         with:
-          version: v3.12.0
+          path: ~/.cache/trivy
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-
 
-      - name: Run Helm Lint
+      - name: Install System Dependencies
         run: |
-          for chart in charts/*; do
-            if [ -d "$chart" ] && [ -f "$chart/Chart.yaml" ]; then
-              helm lint "$chart"
-            fi
-          done
+          mkdir -p ~/.local/bin
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL https://get.helm.sh/helm-v3.14.3-linux-amd64.tar.gz | tar -xzf - -C ~/.local/bin --strip-components=1 linux-amd64/helm
+          curl -fsSL https://github.com/stackrox/kube-linter/releases/download/v0.6.8/kube-linter-linux.tar.gz | tar -xzf - -C ~/.local/bin kube-linter
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xzf - -C ~/.local/bin kubeconform
+          curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz | tar -xzf - -C ~/.local/bin trivy
 
-      - name: Kube-Linter (Best Practices)
-        uses: stackrox/kube-linter-action@v1.0.4
-        with:
-          directory: charts/
-          # We'll ignore the plaintext password warning for postgresql subchart since it's dev default
-          config: .kube-linter.yaml
-
-      - name: Run Trivy vulnerability scanner (IaC)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: 'charts/'
-          format: 'table'
-          exit-code: '1'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Run Checkov (Policy-as-Code)
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: charts/
-          framework: helm
-          quiet: true
-
-      - name: Install Kubeconform
+      - name: Environment Setup
+        env:
+          GH_USER: ${{ github.actor }}
+          GH_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          wget https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
-          tar -xf kubeconform-linux-amd64.tar.gz
-          sudo mv kubeconform /usr/local/bin/
+          pip install uv
+          make setup
 
-      - name: Run Kubeconform (Strict Schema & OCP Validation)
-        run: |
-          for chart in charts/*; do
-            if [ -d "$chart" ] && [ -f "$chart/Chart.yaml" ]; then
-              chart_name=$(basename "$chart")
-              helm template "$chart_name" "$chart" \
-                --set secrets.langfuseNextauthSecret="dummy" \
-                --set secrets.langfuseSalt="dummy" \
-                | kubeconform -strict -summary \
-                -schema-location default \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-            fi
-          done
+      - name: Run Pytest
+        run: uv run pytest tests/
+
+      - name: Run Prek (Commit Hooks)
+        run: uvx prek run --all-files
+
+      - name: Run Prek (Pre-Push Hooks - Trivy IaC)
+        run: uvx prek run --all-files --hook-stage pre-push
+
   kind-integration:
     runs-on: ubuntu-latest
     needs: scan-and-lint
