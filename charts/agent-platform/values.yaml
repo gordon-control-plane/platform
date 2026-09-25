@@ -99,9 +99,9 @@ temporal:
       runAsUser: null
       fsGroup: null
     additionalVolumes:
-      - name: persistence
+      - name: temporal-scratch
         emptyDir:
           sizeLimit: 1Gi
     additionalVolumeMounts:
-      - name: persistence
+      - name: temporal-scratch
         mountPath: /var/lib/temporal
