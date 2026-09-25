@@ -2,9 +2,46 @@ name: Infra CI & Security
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: read
 
 jobs:
+  enforce-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for mixed Dockerfile and source changes
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-isolation-check') }}
+        run: |
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          HAS_DOCKERFILE=0
+          HAS_OTHER=0
+          for file in $CHANGED_FILES; do
+            if [[ "$file" == *"Dockerfile"* ]]; then
+              HAS_DOCKERFILE=1
+            else
+              HAS_OTHER=1
+            fi
+          done
+
+          if [ "$HAS_DOCKERFILE" -eq 1 ] && [ "$HAS_OTHER" -eq 1 ]; then
+            echo "::error::PR mixes Dockerfile changes with other source code!"
+            echo "To keep CI builds fast and isolated, Dockerfile updates must be in their own PR."
+            echo "If this is a massive cross-cutting feature (like the current tailscale ingress PR), add the 'skip-isolation-check' label to this PR to bypass this rule."
+            exit 1
+          fi
+          echo "Isolation check passed."
+
   scan-and-lint:
+    needs: enforce-isolation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -77,10 +114,14 @@ jobs:
           # Set default kind API URL
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
+          export GH_PAT="${{ secrets.GITHUB_TOKEN }}"
+          export IMAGE_TAG="main"
           make deploy KUBE_API_URL="$KUBE_API_URL" HELM_ARGS="--set tailscaleIngress.enabled=false"
 
       - name: Run Smoke Tests
         run: |
           KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           export KUBE_API_URL
+          export GH_PAT="${{ secrets.GITHUB_TOKEN }}"
+          export IMAGE_TAG="main"
           make test-e2e KUBE_API_URL="$KUBE_API_URL"
