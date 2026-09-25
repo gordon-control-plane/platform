@@ -34,8 +34,8 @@ jobs:
 
           if [ "$HAS_DOCKERFILE" -eq 1 ] && [ "$HAS_OTHER" -eq 1 ]; then
             echo "::error::PR mixes Dockerfile changes with other source code!"
-            echo "To keep CI builds fast and isolated, Dockerfile updates must be in their own PR."
-            echo "If this is a massive cross-cutting feature (like the current tailscale ingress PR), add the 'skip-isolation-check' label to this PR to bypass this rule."
+            echo "To ensure CI checks are valid and based on images already built, Dockerfile updates should be in their own PR."
+            echo "If necessary, add the \`skip-isolation-check\` label to this PR to bypass this rule."
             exit 1
           fi
           echo "Isolation check passed."
