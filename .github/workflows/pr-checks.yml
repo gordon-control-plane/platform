@@ -6,8 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install dependencies
-        run: pip install uv && uv sync
+      - name: Environment Setup
+        run: |
+          pip install uv
+          make setup
       - name: Run prek checks
         run: uvx prek run --all-files
       - name: Run pytest

@@ -22,3 +22,14 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Generate a stable, collision-free Tailscale hostname.
+*/}}
+{{- define "agent-platform.tailscaleHostname" -}}
+{{- if .Values.tailscaleIngress.hostname }}
+{{- .Values.tailscaleIngress.hostname }}
+{{- else }}
+{{- printf "%s-platform-%s" .Release.Namespace (trunc 4 (sha256sum .Release.Name)) }}
+{{- end }}
+{{- end }}

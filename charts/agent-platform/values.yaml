@@ -18,36 +18,42 @@ secrets:
 # Unprivileged Sidecar Bridge Ingress
 tailscaleIngress:
   enabled: true
-  replicaCount: 1
   image:
-    repository: tailscale/tailscale
+    repository: ghcr.io/gordon-control-plane/caddy-tailscale
     tag: latest
-  caddyImage:
-    repository: caddy
-    tag: 2-alpine
-  hostname: gordon-control-plane
+  hostname: "" # Dynamically generated via helper if left blank
+  tailnet: ""  # Must be provided via --set or values override (e.g. from .env)
+  ephemeral: false
+  storage:
+    size: 100Mi
+
   # The TS_AUTHKEY should be provided via secret:
   # kubectl create secret generic tailscale-auth --from-literal=TS_AUTHKEY=tskey-auth-xxxx
   secretName: tailscale-auth
   caddyConfig: |
-    # Caddyfile config
-    # Route via plain HTTP since Tailscale serve terminates TLS and injects Tailscale-User-Login
-    http://127.0.0.1:8080 {
-        # Proxy routes
-        handle /v1/chat* {
-            reverse_proxy unified-api:8000
+    {
+        tailscale {
+            ephemeral {{ .Values.tailscaleIngress.ephemeral }}
         }
-
-        handle /v1/* {
-            reverse_proxy unified-api:8000
+        servers {
+            timeouts {
+                read_body 120s
+                read_header 5s
+            }
+            trusted_proxies static 127.0.0.1/8 ::1/128
         }
+    }
 
-        handle /telemetry* {
-            reverse_proxy unified-api:8000
-        }
+    {{ include "agent-platform.tailscaleHostname" . }}.{{ .Values.tailscaleIngress.tailnet }} {
+        bind tailscale/{{ include "agent-platform.tailscaleHostname" . }}
+        tailscale_auth
+        request_header X-Webauth-User {http.auth.user.tailscale_user}
+        request_header X-Webauth-Name {http.auth.user.tailscale_name}
+        request_header X-Webauth-Email {http.auth.user.tailscale_user}
+        request_header X-Tailscale-Tailnet {http.auth.user.tailscale_tailnet}
 
-        handle /api/* {
-            reverse_proxy unified-api:8000
+        request_body {
+            max_size 10MB
         }
 
         handle /* {

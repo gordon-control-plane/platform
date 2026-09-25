@@ -2,9 +2,46 @@ name: Infra CI & Security
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: read
 
 jobs:
+  enforce-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for mixed Dockerfile and source changes
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-isolation-check') }}
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD^1 HEAD)
+          HAS_DOCKERFILE=0
+          HAS_OTHER=0
+          for file in $CHANGED_FILES; do
+            if [[ "$file" == *"Dockerfile"* ]]; then
+              HAS_DOCKERFILE=1
+            else
+              HAS_OTHER=1
+            fi
+          done
+
+          if [ "$HAS_DOCKERFILE" -eq 1 ] && [ "$HAS_OTHER" -eq 1 ]; then
+            echo "::error::PR mixes Dockerfile changes with other source code!"
+            echo "To ensure CI checks are valid and based on images already built, Dockerfile updates should be in their own PR."
+            echo "If necessary, add the \`skip-isolation-check\` label to this PR to bypass this rule."
+            exit 1
+          fi
+          echo "Isolation check passed."
+
   scan-and-lint:
+    needs: enforce-isolation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -42,7 +79,7 @@ jobs:
 
       - name: Install Kubeconform
         run: |
-          wget https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz
+          wget https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
           tar -xf kubeconform-linux-amd64.tar.gz
           sudo mv kubeconform /usr/local/bin/
 
@@ -58,6 +95,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: scan-and-lint
     environment: e2e-tests
+    env:
+      GH_USER: ${{ github.actor }}
+      GH_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v3
 
@@ -69,18 +109,15 @@ jobs:
         with:
           cluster_name: e2e-cluster
 
-      - name: Build Helm Dependencies
-        run: helm dependency update charts/agent-platform
+      - name: Export Cluster URL
+        run: |
+          echo "KUBE_API_URL=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Deploy to Kind
-        run: |
-          # Set default kind API URL
-          KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          export KUBE_API_URL
-          make deploy KUBE_API_URL="$KUBE_API_URL"
+        run: make deploy HELM_ARGS="--set tailscaleIngress.enabled=false"
 
       - name: Run Smoke Tests
-        run: |
-          KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          export KUBE_API_URL
-          make test-e2e KUBE_API_URL="$KUBE_API_URL"
+        run: make test-e2e

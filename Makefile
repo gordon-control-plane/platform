@@ -5,6 +5,7 @@ NAMESPACE ?= gordon
 RELEASE_NAME ?= agent-platform
 
 GIT_SHA ?= $(shell git rev-parse HEAD)
+IMAGE_TAG ?= main
 CURRENT_API_URL = $(shell kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)
 # Auto-detect local cluster if present, otherwise require explicit input
 KUBE_API_URL ?= $(if $(findstring 127.0.0.1,$(CURRENT_API_URL)),$(CURRENT_API_URL),$(if $(findstring localhost,$(CURRENT_API_URL)),$(CURRENT_API_URL),))
@@ -42,19 +43,36 @@ deploy: setup check-cluster
 	@helm upgrade --install postgres-operator postgres-operator-charts/postgres-operator \
 		--namespace $(NAMESPACE) --create-namespace
 	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
-	@. .env && kubectl create secret docker-registry ghcr-secret \
+	@if [ -f .env ]; then set -a; . .env; set +a; fi; \
+	if [ -n "$$GH_PAT" ]; then \
+		kubectl create secret docker-registry ghcr-secret \
+			--namespace $(NAMESPACE) \
+			--docker-server=ghcr.io \
+			--docker-username=$${GH_USER:-gordon-control-plane} \
+			--docker-password="$$GH_PAT" \
+			--dry-run=client -o yaml | kubectl apply -f -; \
+	fi; \
+	if [ -n "$$TAILSCALE_AUTH_KEY" ]; then \
+		kubectl create secret generic tailscale-auth \
+			--namespace $(NAMESPACE) \
+			--from-literal=TS_AUTHKEY="$$TAILSCALE_AUTH_KEY" \
+			--dry-run=client -o yaml | kubectl apply -f -; \
+	fi; \
+	echo "Upgrading Helm chart (streaming live pod status)..."; \
+	kubectl get pods -n $(NAMESPACE) -w & WATCH_PID=$$!; \
+	helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
 		--namespace $(NAMESPACE) \
-		--docker-server=ghcr.io \
-		--docker-username=gordon-control-plane \
-		--docker-password="$$GH_PAT" \
-		--dry-run=client -o yaml | kubectl apply -f -
-	@. .env && helm upgrade --install $(RELEASE_NAME) charts/agent-platform \
-		--namespace $(NAMESPACE) \
-		--set global.image.tag="$(GIT_SHA)" \
-		--set secrets.langfuseNextauthSecret="$$LANGFUSE_NEXTAUTH_SECRET" \
-		--set secrets.langfuseSalt="$$LANGFUSE_SALT" \
-		--wait --timeout 600s
-
+		--set tailscaleIngress.tailnet="$$TAILSCALE_DOMAIN" \
+		--set tailscaleIngress.hostname="$(USER)-$(NAMESPACE)-$(RELEASE_NAME)" \
+		--set tailscaleIngress.ephemeral=true \
+		--set global.image.tag="$(IMAGE_TAG)" \
+		--set secrets.langfuseNextauthSecret="$${LANGFUSE_NEXTAUTH_SECRET:-dummy}" \
+		--set secrets.langfuseSalt="$${LANGFUSE_SALT:-dummy}" \
+		$(HELM_ARGS) \
+		--wait --timeout 600s; \
+	HELM_EXIT=$$?; \
+	kill $$WATCH_PID 2>/dev/null || true; \
+	exit $$HELM_EXIT
 teardown: check-cluster
 	./scripts/teardown.sh $(NAMESPACE) $(RELEASE_NAME)
 
