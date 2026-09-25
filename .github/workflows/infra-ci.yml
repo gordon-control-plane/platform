@@ -16,12 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - name: Check for mixed Dockerfile and source changes
         if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-isolation-check') }}
         run: |
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          CHANGED_FILES=$(git diff --name-only HEAD^1 HEAD)
           HAS_DOCKERFILE=0
           HAS_OTHER=0
           for file in $CHANGED_FILES; do
