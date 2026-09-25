@@ -5,6 +5,7 @@ RUN xcaddy build \
 
 FROM caddy:2.11-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+# hadolint ignore=DL3018
 RUN apk add --no-cache libcap && setcap -r /usr/bin/caddy || true
 
 USER 1000:1000
