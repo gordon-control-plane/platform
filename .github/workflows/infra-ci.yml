@@ -95,6 +95,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: scan-and-lint
     environment: e2e-tests
+    env:
+      GH_USER: ${{ github.actor }}
+      GH_PAT: ${{ secrets.GITHUB_TOKEN }}
+      IMAGE_TAG: "main"
     steps:
       - uses: actions/checkout@v3
 
@@ -106,24 +110,15 @@ jobs:
         with:
           cluster_name: e2e-cluster
 
+      - name: Export Cluster URL
+        run: |
+          echo "KUBE_API_URL=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" >> "$GITHUB_ENV"
+
       - name: Install uv
         run: pip install uv
 
       - name: Deploy to Kind
-        run: |
-          # Set default kind API URL
-          KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          export KUBE_API_URL
-          export GH_USER="${{ github.actor }}"
-          export GH_PAT="${{ secrets.GITHUB_TOKEN }}"
-          export IMAGE_TAG="main"
-          make deploy KUBE_API_URL="$KUBE_API_URL" HELM_ARGS="--set tailscaleIngress.enabled=false"
+        run: make deploy HELM_ARGS="--set tailscaleIngress.enabled=false"
 
       - name: Run Smoke Tests
-        run: |
-          KUBE_API_URL="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          export KUBE_API_URL
-          export GH_USER="${{ github.actor }}"
-          export GH_PAT="${{ secrets.GITHUB_TOKEN }}"
-          export IMAGE_TAG="main"
-          make test-e2e KUBE_API_URL="$KUBE_API_URL"
+        run: make test-e2e
