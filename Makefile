@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .PHONY: cluster-up cluster-down setup deploy teardown test-e2e test lint format
 
-NAMESPACE ?= gordon
+NAMESPACE ?= platform
 RELEASE_NAME ?= agent-platform
 
 GIT_SHA ?= $(shell git rev-parse HEAD)

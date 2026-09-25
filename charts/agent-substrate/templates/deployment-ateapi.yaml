@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ateapi
+  labels:
+    {{- include "agent-substrate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ateapi
+spec:
+  replicas: {{ .Values.ateapi.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "agent-substrate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ateapi
+  template:
+    metadata:
+      labels:
+        {{- include "agent-substrate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ateapi
+    spec:
+      containers:
+      - name: ateapi
+        image: "{{ .Values.image.repository }}/ateapi:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        args:
+        - "--grpc-listen-addr=:50051"
+        - "--postgres-connection-string=$(POSTGRES_URL)"
+        - "--grpc-server-cred-bundle=/etc/tls/bundle.pem"
+        - "--authentication-config=/etc/tls/auth.yaml"
+        readinessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        ports:
+        - containerPort: 50051
+          name: grpc
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),k8s.pod.uid=$(POD_UID),service.instance.id=$(POD_UID)
+        - name: ATE_STORAGE_BACKEND
+          value: "s3"
+        - name: AWS_ENDPOINT_URL_S3
+          value: {{ printf "http://minio.%s.svc.cluster.local:9000" .Release.Namespace | quote }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-auth-secret
+              key: rootUser
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-auth-secret
+              key: rootPassword
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: AWS_S3_USE_PATH_STYLE
+          value: "true"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: "platform-admin.agent-platform-db.credentials.postgresql.acid.zalan.do"
+              key: password
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: "platform-admin.agent-platform-db.credentials.postgresql.acid.zalan.do"
+              key: username
+        - name: POSTGRES_URL
+          value: "postgres://$(PGUSER):$(PGPASSWORD)@{{ .Values.postgres.host }}.{{ .Release.Namespace }}.svc.cluster.local:5432/postgres"
+        volumeMounts:
+        - name: tls
+          mountPath: /etc/tls
+          readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: agent-substrate-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ateapi
+spec:
+  selector:
+    {{- include "agent-substrate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ateapi
+  ports:
+  - port: 50051
+    targetPort: 50051
+    name: grpc

@@ -1,0 +1,112 @@
+{{- if .Values.atelet.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: atelet
+  labels:
+    {{- include "agent-substrate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: atelet
+spec:
+  selector:
+    matchLabels:
+      {{- include "agent-substrate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: atelet
+  template:
+    metadata:
+      labels:
+        {{- include "agent-substrate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: atelet
+    spec:
+      serviceAccountName: agent-substrate-sa
+      hostPID: true
+      containers:
+      - name: atelet
+        image: "{{ .Values.image.repository }}/atelet:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/usr/local/bin/atelet"]
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          runAsGroup: 0
+        args:
+        - --ateapi-address=ateapi:50051
+        - --gcp-auth-for-image-pulls=false
+        - --ateapi-ca-file=/etc/tls/bundle.pem
+        - --grpc-server-cred-bundle=/etc/tls/bundle.pem
+        - --client-ca-certs=/etc/tls/bundle.pem
+        - --ateapi-server-name=ateapi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+        readinessProbe:
+          tcpSocket:
+            port: 9090
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: ATE_STORAGE_BACKEND
+          value: "s3"
+        - name: AWS_ENDPOINT_URL_S3
+          value: {{ printf "http://minio.%s.svc.cluster.local:9000" .Release.Namespace | quote }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-auth-secret
+              key: rootUser
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-auth-secret
+              key: rootPassword
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: AWS_S3_USE_PATH_STYLE
+          value: "true"
+        volumeMounts:
+        - name: ateom-gvisor
+          mountPath: /var/lib/ateom-gvisor
+        - name: kubelet-plugins
+          mountPath: /var/lib/kubelet/plugins
+        - name: kubelet-device-plugins
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: host-dev
+          mountPath: /host/dev
+          readOnly: true
+        - name: tls
+          mountPath: /etc/tls
+          readOnly: true
+      volumes:
+      - name: ateom-gvisor
+        hostPath:
+          path: /var/lib/ateom-gvisor
+          type: DirectoryOrCreate
+      - name: kubelet-plugins
+        hostPath:
+          path: /var/lib/kubelet/plugins
+          type: DirectoryOrCreate
+      - name: kubelet-device-plugins
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+          type: DirectoryOrCreate
+      - name: host-dev
+        hostPath:
+          path: /dev
+          type: Directory
+      - name: tls
+        secret:
+          secretName: agent-substrate-tls
+{{- end }}
