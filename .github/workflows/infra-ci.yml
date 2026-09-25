@@ -98,7 +98,6 @@ jobs:
     env:
       GH_USER: ${{ github.actor }}
       GH_PAT: ${{ secrets.GITHUB_TOKEN }}
-      IMAGE_TAG: "main"
     steps:
       - uses: actions/checkout@v3
 
