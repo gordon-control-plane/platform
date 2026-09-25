@@ -74,8 +74,8 @@ deploy: setup check-cluster
 			--set tailscaleIngress.hostname="$(USER)-$(NAMESPACE)-$(RELEASE_NAME)" \
 			--set tailscaleIngress.ephemeral=true \
 			--set global.image.tag="$(GIT_SHA)" \
-			--set secrets.langfuseNextauthSecret="dummy" \ # pragma: allowlist secret
-			--set secrets.langfuseSalt="dummy" \ # pragma: allowlist secret
+			--set secrets.langfuseNextauthSecret="dummy" \
+			--set secrets.langfuseSalt="dummy" \
 			$(HELM_ARGS) \
 			--wait --timeout 600s; \
 	fi
