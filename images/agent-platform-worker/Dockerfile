@@ -1,6 +1,6 @@
 # Placeholder Dockerfile for all microservices
 # To be replaced with actual multi-stage builds in the next epic.
-FROM debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
 RUN echo "Microservice pending implementation."
 
