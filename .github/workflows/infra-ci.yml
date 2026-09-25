@@ -42,7 +42,7 @@ jobs:
 
       - name: Install Kubeconform
         run: |
-          wget https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz
+          wget https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
           tar -xf kubeconform-linux-amd64.tar.gz
           sudo mv kubeconform /usr/local/bin/
 
