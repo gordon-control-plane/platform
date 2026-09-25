@@ -2,7 +2,7 @@ import os
 import subprocess
 import pytest
 
-NAMESPACE = os.environ.get("NAMESPACE", "gordon")
+NAMESPACE = os.environ.get("NAMESPACE", "platform")
 
 
 def check_pod_ready(label_selector: str):
