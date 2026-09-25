@@ -5,7 +5,7 @@ NAMESPACE ?= gordon
 RELEASE_NAME ?= agent-platform
 
 GIT_SHA ?= $(shell git rev-parse HEAD)
-IMAGE_TAG ?= $(GIT_SHA)
+IMAGE_TAG ?= main
 CURRENT_API_URL = $(shell kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)
 # Auto-detect local cluster if present, otherwise require explicit input
 KUBE_API_URL ?= $(if $(findstring 127.0.0.1,$(CURRENT_API_URL)),$(CURRENT_API_URL),$(if $(findstring localhost,$(CURRENT_API_URL)),$(CURRENT_API_URL),))
