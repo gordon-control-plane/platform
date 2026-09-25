@@ -20,13 +20,33 @@ if [ "$CI" != "true" ]; then
     if [ ! -f "$ENV_FILE" ]; then
         echo "Creating $ENV_FILE..."
 
-        read -p "Enter GitHub PAT (with read:packages scope) for GHCR: " gh_pat
+        if command -v gh &> /dev/null && gh auth status &> /dev/null; then
+            detected_user=$(gh api user -q .login 2>/dev/null || echo "")
+            if [ -n "$detected_user" ]; then
+                read -p "Found authenticated GitHub CLI (User: $detected_user). Use this for GHCR auth? [Y/n] " use_gh
+                if [[ "$use_gh" =~ ^[Nn] ]]; then
+                    read -p "Enter GitHub Username: " gh_user
+                    read -p "Enter GitHub PAT (with read:packages scope): " gh_pat
+                else
+                    gh_user="$detected_user"
+                    gh_pat=$(gh auth token)
+                    echo "Using GitHub CLI token. (Note: if image pulls fail, ensure your CLI was authenticated with read:packages scope!)"
+                fi
+            else
+                read -p "Enter GitHub Username: " gh_user
+                read -p "Enter GitHub PAT (with read:packages scope): " gh_pat
+            fi
+        else
+            read -p "Enter GitHub Username: " gh_user
+            read -p "Enter GitHub PAT (with read:packages scope): " gh_pat
+        fi
 
         # Generate secure random passwords
         lf_secret=$(openssl rand -base64 32)
         lf_salt=$(openssl rand -hex 16)
 
         cat <<EOF > "$ENV_FILE"
+GH_USER="${gh_user}"
 GH_PAT="${gh_pat}"
 TAILSCALE_AUTH_KEY=""
 LANGFUSE_NEXTAUTH_SECRET="${lf_secret}"
