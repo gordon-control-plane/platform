@@ -6,9 +6,10 @@
   "packageRules": [
     {
       "matchDatasources": ["deb"],
+      "matchFileNames": ["images/caddy-tailscale/Dockerfile"],
       "registryUrls": [
-        "https://deb.debian.org/debian bookworm main",
-        "https://deb.debian.org/debian-security bookworm-security main"
+        "https://deb.debian.org/debian?suite=bookworm&components=main&binaryArch=amd64",
+        "https://deb.debian.org/debian-security?suite=bookworm-security&components=main&binaryArch=amd64"
       ]
     }
   ]
