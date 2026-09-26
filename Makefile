@@ -107,7 +107,7 @@ lint-kube:
 .PHONY: scan-iac
 scan-iac:
 	@echo "Running Trivy IaC Scan..."
-	trivy fs charts/ --format table --exit-code 1 --severity CRITICAL,HIGH
+	trivy fs . --format table --exit-code 1 --severity CRITICAL,HIGH
 
 test:
 	uv run pytest tests/

@@ -54,7 +54,7 @@ hooks = [
 repo = "https://github.com/bridgecrewio/checkov"
 rev = "3.2.66"
 hooks = [
-  { id = "checkov", priority = 0, args = ["-d", "charts", "--framework", "helm"] }
+  { id = "checkov", priority = 0, args = ["-d", "charts", "--framework", "helm"], files = "^charts/" }
 ]
 
 [[repos]]
@@ -70,5 +70,5 @@ hooks = [
   { id = "helm-lint", name = "Helm Lint", entry = "make lint-helm", language = "system", pass_filenames = false, files = "^charts/" },
   { id = "kube-linter", name = "Kube-Linter", entry = "make lint-kube", language = "system", pass_filenames = false, files = "^charts/" },
   { id = "kubeconform", name = "Kubeconform", entry = "make check-schema", language = "system", pass_filenames = false, files = "^charts/" },
-  { id = "trivy-fs", name = "Trivy IaC", entry = "make scan-iac", language = "system", pass_filenames = false, files = "^charts/", stages = ["pre-push", "manual"] }
+  { id = "trivy-fs", name = "Trivy IaC", entry = "make scan-iac", language = "system", pass_filenames = false, stages = ["pre-push", "manual"] }
 ]
