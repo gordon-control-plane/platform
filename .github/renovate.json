@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base"
+  ],
+  "packageRules": [
+    {
+      "matchDatasources": ["deb"],
+      "registryUrls": [
+        "https://deb.debian.org/debian bookworm main",
+        "https://deb.debian.org/debian-security bookworm-security main"
+      ]
+    }
+  ]
+}
