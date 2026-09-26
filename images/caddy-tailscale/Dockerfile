@@ -5,10 +5,9 @@ RUN xcaddy build \
 
 FROM caddy:2.11@sha256:040e9f7480b80b6d4a7e5013a21159b950a63dcbdb956e38abe2387fb28d9ec0
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-# hadolint ignore=DL3008
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends libcap2-bin && \
+    apt-get install -y --no-install-recommends libcap2-bin=1:2.66-4* && \
     setcap -r /usr/bin/caddy || true && \
     rm -rf /var/lib/apt/lists/*
 
