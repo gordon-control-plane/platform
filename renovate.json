@@ -3,9 +3,6 @@
   "description": [
     "Managed by khepri-deps/renovate — global config provides weekly Monday schedule, 14-day release cooldown, and vulnerability alert bypass."
   ],
-  "extends": [
-    "config:base"
-  ],
   "packageRules": [
     {
       "matchDatasources": ["deb"],
