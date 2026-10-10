@@ -145,6 +145,9 @@ def test_caddyfile_structural_validation(manifests):
         f.write(caddyfile)
         tmp_path = f.name
 
+    # Ensure the file is readable by the unprivileged caddy user in the container
+    os.chmod(tmp_path, 0o644)
+
     try:
         if has_local_caddy:
             result = subprocess.run(
