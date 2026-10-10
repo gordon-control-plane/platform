@@ -108,6 +108,7 @@ def test_caddy_config(manifests):
     assert "reverse_proxy frontend:3000" in caddyfile
 
 
+@pytest.mark.timeout(300)
 def test_caddyfile_structural_validation(manifests):
     cm = find_manifest(manifests, "ConfigMap", f"{RELEASE_NAME}-caddy-config")
     assert cm is not None, "Caddy ConfigMap should be created"

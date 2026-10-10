@@ -133,7 +133,7 @@ check-schema:
 .PHONY: scan-iac
 scan-iac:
 	@echo "Running Trivy IaC Scan..."
-	trivy fs . --format table --exit-code 1 --severity CRITICAL,HIGH
+	trivy fs . --format table --exit-code 1 --severity CRITICAL,HIGH --cache-dir .trivy-iac-cache
 
 .PHONY: scan-local
 scan-local:
